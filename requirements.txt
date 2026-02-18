@@ -1,0 +1,12 @@
+streamlit
+fastapi
+uvicorn
+playwright
+openai>=1.0.0
+pandas
+requests
+pandas
+requests
+beautifulsoup4
+reportlab
+plotly
