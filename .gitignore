@@ -1,0 +1,44 @@
+# ======================================================
+# Axessia – .gitignore
+# ======================================================
+
+# ── SECRETS — never commit these ──────────────────────
+.env
+_env
+*.env
+.env.local
+.env.production
+
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# ── Virtual environments ──────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Playwright browsers ───────────────────────────────
+playwright-browsers/
+.playwright/
+
+# ── SQLite cache ──────────────────────────────────────
+ai_cache.db
+
+# ── Logs ──────────────────────────────────────────────
+*.log
+logs/
+
+# ── OS ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDEs ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp

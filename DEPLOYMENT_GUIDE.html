@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axessia – Azure Deployment Guide</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; color: #1a1a2e; line-height: 1.7; }
+
+  .hero {
+    background: linear-gradient(135deg, #1E3A5F 0%, #2E75B6 100%);
+    color: white; padding: 60px 40px; text-align: center;
+  }
+  .hero h1 { font-size: 2.8rem; font-weight: 800; letter-spacing: -1px; }
+  .hero p  { font-size: 1.2rem; margin-top: 12px; opacity: 0.85; }
+
+  .toc {
+    background: white; max-width: 900px; margin: 30px auto;
+    border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    padding: 30px 36px;
+  }
+  .toc h2 { color: #1E3A5F; font-size: 1.1rem; margin-bottom: 16px; }
+  .toc ol  { padding-left: 22px; }
+  .toc li  { margin: 6px 0; }
+  .toc a   { color: #2E75B6; text-decoration: none; font-weight: 500; }
+  .toc a:hover { text-decoration: underline; }
+
+  .section {
+    max-width: 900px; margin: 24px auto;
+    background: white; border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    overflow: hidden;
+  }
+  .section-header {
+    background: #1E3A5F; color: white;
+    padding: 18px 30px; display: flex; align-items: center; gap: 14px;
+  }
+  .section-header .num {
+    background: rgba(255,255,255,0.2); border-radius: 50%;
+    width: 36px; height: 36px; display: flex; align-items: center;
+    justify-content: center; font-weight: 800; font-size: 1rem; flex-shrink: 0;
+  }
+  .section-header h2 { font-size: 1.15rem; font-weight: 700; }
+  .section-body { padding: 28px 32px; }
+
+  .step {
+    display: flex; gap: 18px; margin-bottom: 24px;
+    padding-bottom: 24px; border-bottom: 1px solid #eef2f7;
+  }
+  .step:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .step-num {
+    background: #2E75B6; color: white; border-radius: 50%;
+    width: 32px; height: 32px; min-width: 32px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.9rem;
+  }
+  .step-content h3 { font-size: 1rem; font-weight: 700; color: #1E3A5F; margin-bottom: 6px; }
+  .step-content p  { color: #444; font-size: 0.95rem; }
+
+  code {
+    background: #1a1a2e; color: #7dd3fc; padding: 2px 8px;
+    border-radius: 4px; font-family: 'Courier New', monospace;
+    font-size: 0.88rem;
+  }
+  pre {
+    background: #1a1a2e; color: #e2e8f0; padding: 18px 22px;
+    border-radius: 8px; overflow-x: auto; margin: 12px 0;
+    font-family: 'Courier New', monospace; font-size: 0.88rem;
+    line-height: 1.8;
+  }
+  pre .kw  { color: #7dd3fc; }
+  pre .val { color: #86efac; }
+  pre .cmt { color: #6b7280; font-style: italic; }
+
+  .callout {
+    border-radius: 8px; padding: 14px 18px;
+    margin: 14px 0; font-size: 0.93rem;
+  }
+  .callout.warning { background: #fff7ed; border-left: 4px solid #f59e0b; }
+  .callout.info    { background: #eff6ff; border-left: 4px solid #2E75B6; }
+  .callout.success { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  .callout.danger  { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .callout strong  { font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.92rem; }
+  th { background: #1E3A5F; color: white; padding: 10px 14px; text-align: left; }
+  td { padding: 9px 14px; border-bottom: 1px solid #e5eaf2; }
+  tr:nth-child(even) td { background: #f5f8fd; }
+
+  .img-placeholder {
+    background: #e8f0fb; border: 2px dashed #93b4d9;
+    border-radius: 8px; padding: 20px; text-align: center;
+    color: #2E75B6; margin: 12px 0; font-size: 0.9rem;
+  }
+
+  .file-list { list-style: none; padding: 0; }
+  .file-list li {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 6px; margin: 4px 0;
+    background: #f5f8fd;
+  }
+  .file-list .icon { font-size: 1.1rem; }
+  .file-list .fname { font-family: 'Courier New', monospace; font-size: 0.88rem; color: #1E3A5F; font-weight: 600; }
+  .file-list .fdesc { font-size: 0.82rem; color: #666; margin-left: auto; }
+
+  .env-table th:first-child { width: 40%; }
+
+  footer {
+    text-align: center; padding: 30px;
+    color: #888; font-size: 0.85rem; max-width: 900px; margin: 0 auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>⚡ Axessia</h1>
+  <p>Azure App Service Deployment Guide — Web Scan Console (WSC)</p>
+  <p style="margin-top:6px;font-size:0.95rem;opacity:0.7;">Step-by-step · Layman friendly · Complete</p>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<div class="toc">
+  <h2>📋 Table of Contents</h2>
+  <ol>
+    <li><a href="#s1">What you will get after completing this guide</a></li>
+    <li><a href="#s2">Files in your package — what each one does</a></li>
+    <li><a href="#s3">PART A — Set up your local computer (one-time)</a></li>
+    <li><a href="#s4">PART B — Create your Azure OpenAI resource</a></li>
+    <li><a href="#s5">PART C — Create your Azure App Service</a></li>
+    <li><a href="#s6">PART D — Connect Git to Azure (auto-deploy)</a></li>
+    <li><a href="#s7">PART E — Configure all App Settings (environment variables)</a></li>
+    <li><a href="#s8">PART F — Push your code and watch it deploy</a></li>
+    <li><a href="#s9">PART G — Test your live app</a></li>
+    <li><a href="#s10">Troubleshooting common errors</a></li>
+  </ol>
+</div>
+
+<!-- SECTION 1 -->
+<div class="section" id="s1">
+  <div class="section-header"><div class="num">1</div><h2>What you will get after completing this guide</h2></div>
+  <div class="section-body">
+    <p>By the end of this guide, you will have Axessia's <strong>Web Scan Console (WSC)</strong> running live on Microsoft Azure at a URL like <code>https://axessia-app.azurewebsites.net</code>. Anyone on your team can open that link in a browser and use the tool immediately — no installation required on their machine.</p>
+    <br>
+    <table>
+      <tr><th>What gets deployed</th><th>Where it runs</th></tr>
+      <tr><td>Axessia Streamlit frontend (the UI your team sees)</td><td>Azure App Service — port 8000 (public)</td></tr>
+      <tr><td>Axessia FastAPI scan engine (the backend that does the scanning)</td><td>Same App Service — port 8001 (internal only)</td></tr>
+      <tr><td>AI explanations (Azure OpenAI)</td><td>Azure OpenAI Service (separate resource)</td></tr>
+    </table>
+    <div class="callout info">
+      <strong>💡 Only WSC is included.</strong> Android and iOS mobile scanning require a physically connected device — they cannot run in the cloud. This package is WSC-only and fully cloud-ready.
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 2 -->
+<div class="section" id="s2">
+  <div class="section-header"><div class="num">2</div><h2>Files in your package — what each one does</h2></div>
+  <div class="section-body">
+    <ul class="file-list">
+      <li><span class="icon">🚪</span><span class="fname">app.py</span><span class="fdesc">Entry point — Streamlit starts here</span></li>
+      <li><span class="icon">🖥️</span><span class="fname">app_wsc.py</span><span class="fdesc">The entire Web Scan Console UI</span></li>
+      <li><span class="icon">⚙️</span><span class="fname">api_worker.py</span><span class="fdesc">FastAPI backend — handles scan requests securely</span></li>
+      <li><span class="icon">🔍</span><span class="fname">scanner_axe.py</span><span class="fdesc">Playwright + axe-core accessibility scanner</span></li>
+      <li><span class="icon">🤖</span><span class="fname">openai_client.py</span><span class="fdesc">Azure OpenAI client — AI explanations</span></li>
+      <li><span class="icon">🤖</span><span class="fname">agent_suggester.py</span><span class="fdesc">AI fix suggestions per rule</span></li>
+      <li><span class="icon">🤖</span><span class="fname">ai_qa_generator.py</span><span class="fdesc">AI QA test case generator</span></li>
+      <li><span class="icon">🤖</span><span class="fname">ai_agent.py</span><span class="fdesc">AI agent for issue explanations</span></li>
+      <li><span class="icon">📏</span><span class="fname">rules_registry.py</span><span class="fdesc">WCAG rule definitions</span></li>
+      <li><span class="icon">💡</span><span class="fname">ai_explainer.py</span><span class="fdesc">Rule explanation logic (no LLM cost)</span></li>
+      <li><span class="icon">🌐</span><span class="fname">crawl_orchestrator.py</span><span class="fdesc">Multi-page site crawl logic</span></li>
+      <li><span class="icon">📄</span><span class="fname">pdf_report.py</span><span class="fdesc">PDF export engine</span></li>
+      <li><span class="icon">⚖️</span><span class="fname">eaa_mapping.py / eaa_scoring.py</span><span class="fdesc">European Accessibility Act scoring</span></li>
+      <li><span class="icon">📊</span><span class="fname">scoring.py / prioritizer.py</span><span class="fdesc">WCAG scoring and issue ranking</span></li>
+      <li><span class="icon">🗂️</span><span class="fname">wcag_mapping.py / wcag_master_map.py / normalizer.py</span><span class="fdesc">WCAG data maps</span></li>
+      <li><span class="icon">🚀</span><span class="fname">startup.sh</span><span class="fdesc">Azure startup script — starts both processes</span></li>
+      <li><span class="icon">📦</span><span class="fname">requirements.txt</span><span class="fdesc">Python packages to install</span></li>
+      <li><span class="icon">🔒</span><span class="fname">.gitignore</span><span class="fdesc">Tells Git to ignore secrets and temp files</span></li>
+      <li><span class="icon">📝</span><span class="fname">.env.example</span><span class="fdesc">Shows all environment variables you must set in Azure</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- SECTION 3 — LOCAL SETUP -->
+<div class="section" id="s3">
+  <div class="section-header"><div class="num">3</div><h2>PART A — Set up your local computer (one-time)</h2></div>
+  <div class="section-body">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Install Git</h3>
+        <p>Download and install Git from <strong>git-scm.com/downloads</strong>. Accept all defaults during installation. Git is how your code gets pushed to Azure.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Create a GitHub account (if you don't have one)</h3>
+        <p>Go to <strong>github.com</strong> and sign up for a free account. Remember your username and password.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Create a new GitHub repository</h3>
+        <p>On github.com, click the <strong>+</strong> icon (top right) → <strong>New repository</strong>. Name it <code>axessia-wsc</code>. Set it to <strong>Private</strong>. Do NOT tick "Add README". Click <strong>Create repository</strong>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Create a folder and put your files in it</h3>
+        <p>On your computer, create a new empty folder called <code>axessia-wsc</code>. Copy ALL the files from the ZIP package into this folder. Make sure <code>app.py</code> and <code>startup.sh</code> are at the root (not inside a subfolder).</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Open a terminal / command prompt in that folder</h3>
+        <p>On Windows: hold <strong>Shift</strong> and right-click the folder → <strong>Open PowerShell window here</strong>.<br>On Mac: right-click the folder → <strong>New Terminal at Folder</strong>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h3>Run these commands one by one</h3>
+        <p>Copy and paste each line into the terminal and press Enter after each:</p>
+        <pre><span class="cmt"># 1. Initialise git in this folder</span>
+git init
+
+<span class="cmt"># 2. Add all files</span>
+git add .
+
+<span class="cmt"># 3. Create the first commit</span>
+git commit -m "Initial Axessia WSC deployment"
+
+<span class="cmt"># 4. Set the main branch name</span>
+git branch -M main
+
+<span class="cmt"># 5. Connect to YOUR GitHub repo</span>
+<span class="cmt">#    Replace YOUR-USERNAME with your GitHub username</span>
+git remote add origin https://github.com/<span class="val">YOUR-USERNAME</span>/axessia-wsc.git
+
+<span class="cmt"># 6. Push the code to GitHub</span>
+git push -u origin main</pre>
+        <p>GitHub will ask for your username and password (or a Personal Access Token — see github.com/settings/tokens if prompted).</p>
+      </div>
+    </div>
+
+    <div class="callout success">✅ Your code is now safely on GitHub. Every time you make a change and push, Azure will automatically redeploy.</div>
+  </div>
+</div>
+
+<!-- SECTION 4 — AZURE OPENAI -->
+<div class="section" id="s4">
+  <div class="section-header"><div class="num">4</div><h2>PART B — Create your Azure OpenAI resource</h2></div>
+  <div class="section-body">
+
+    <div class="callout info"><strong>ℹ️ What is this?</strong> Azure OpenAI is Microsoft's version of GPT-4o-mini. It powers the AI explanations in Axessia. You need to create this resource first so you get an API key and endpoint URL.</div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Sign in to Azure Portal</h3>
+        <p>Go to <strong>portal.azure.com</strong> and sign in with your Microsoft / Azure account.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Create a Resource Group</h3>
+        <p>In the search bar at the top, type <strong>Resource groups</strong> and click it. Click <strong>+ Create</strong>. Fill in:<br>
+        — Subscription: your subscription<br>
+        — Resource group name: <code>rg-axessia</code><br>
+        — Region: <strong>East US</strong> (or the closest region to you)<br>
+        Click <strong>Review + Create</strong> → <strong>Create</strong>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Create the Azure OpenAI resource</h3>
+        <p>In the top search bar, type <strong>Azure OpenAI</strong> and click it. Click <strong>+ Create</strong>. Fill in:<br>
+        — Subscription: your subscription<br>
+        — Resource group: <code>rg-axessia</code><br>
+        — Region: <strong>East US</strong><br>
+        — Name: <code>axessia-openai</code><br>
+        — Pricing tier: <strong>Standard S0</strong><br>
+        Click <strong>Next</strong> through all tabs, then <strong>Create</strong>. Wait ~2 minutes.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Copy your Key and Endpoint — SAVE THESE</h3>
+        <p>Once deployment is complete, click <strong>Go to resource</strong>. In the left menu, click <strong>Keys and Endpoint</strong>. You will see:<br>
+        — <strong>KEY 1</strong> — this is your <code>AZURE_OPENAI_KEY</code><br>
+        — <strong>Endpoint</strong> — this is your <code>AZURE_OPENAI_ENDPOINT</code> (looks like <code>https://axessia-openai.openai.azure.com/</code>)<br>
+        Copy both to a safe place (Notepad, etc.).</p>
+        <div class="callout danger">⚠️ Never share your Key or put it in your code files. You will paste it in Azure App Settings — not in any file.</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Deploy the GPT-4o-mini model</h3>
+        <p>On the same Azure OpenAI resource page, click <strong>Go to Azure OpenAI Studio</strong> (blue button). In the Studio, click <strong>Deployments</strong> (left menu) → <strong>+ Create new deployment</strong>. Fill in:<br>
+        — Select a model: <strong>gpt-4o-mini</strong><br>
+        — Deployment name: <code>gpt-4o-mini</code><br>
+        Click <strong>Deploy</strong>. Wait ~1 minute.</p>
+      </div>
+    </div>
+
+    <div class="callout success">✅ Azure OpenAI is ready. You have your Key, Endpoint, and Deployment name. Keep them handy for Part E.</div>
+  </div>
+</div>
+
+<!-- SECTION 5 — APP SERVICE -->
+<div class="section" id="s5">
+  <div class="section-header"><div class="num">5</div><h2>PART C — Create your Azure App Service</h2></div>
+  <div class="section-body">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Search for App Service</h3>
+        <p>In the Azure Portal top search bar, type <strong>App Service</strong> and click it. Click <strong>+ Create</strong> → <strong>Web App</strong>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Fill in the Basics tab</h3>
+        <table>
+          <tr><th>Field</th><th>What to enter</th></tr>
+          <tr><td>Subscription</td><td>Your Azure subscription</td></tr>
+          <tr><td>Resource Group</td><td>rg-axessia (the one you created)</td></tr>
+          <tr><td>Name</td><td>axessia-app (becomes axessia-app.azurewebsites.net)</td></tr>
+          <tr><td>Publish</td><td>Code</td></tr>
+          <tr><td>Runtime stack</td><td>Python 3.11</td></tr>
+          <tr><td>Operating System</td><td>Linux</td></tr>
+          <tr><td>Region</td><td>East US (same as OpenAI)</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Choose the right App Service Plan (size matters!)</h3>
+        <p>Under <strong>Pricing plan</strong>, click <strong>Create new</strong>. Name it <code>axessia-plan</code>. Click <strong>Explore pricing plans</strong> and choose:<br><br>
+        <strong>B2 (Basic)</strong> — 2 CPU cores, 3.5 GB RAM — minimum needed for Playwright + Chromium<br><br>
+        ⚠️ Do NOT choose B1 or F1 (Free) — Playwright will crash with not enough memory.</p>
+        <div class="callout warning">💰 B2 costs approximately $27–35 USD per month. You can scale down to B1 only if you are NOT using Playwright scanning (i.e., scanning is disabled).</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Click Review + Create → Create</h3>
+        <p>Leave all other tabs at their defaults. Click <strong>Review + Create</strong>. Review the summary. Click <strong>Create</strong>. Deployment takes about 2 minutes.</p>
+      </div>
+    </div>
+
+    <div class="callout success">✅ Your App Service is created. Your app URL will be <code>https://axessia-app.azurewebsites.net</code> (or whatever name you chose).</div>
+  </div>
+</div>
+
+<!-- SECTION 6 — GIT DEPLOYMENT -->
+<div class="section" id="s6">
+  <div class="section-header"><div class="num">6</div><h2>PART D — Connect Git to Azure (auto-deploy on push)</h2></div>
+  <div class="section-body">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Go to your App Service</h3>
+        <p>In Azure Portal, go to <strong>App Service</strong> and click on <code>axessia-app</code>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Open Deployment Center</h3>
+        <p>In the left menu, scroll down to <strong>Deployment</strong> section and click <strong>Deployment Center</strong>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Select GitHub as the source</h3>
+        <p>Under <strong>Source</strong>, select <strong>GitHub</strong>. Click <strong>Authorize</strong> and sign in to your GitHub account. Allow the permissions it asks for.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Select your repository</h3>
+        <p>Fill in:<br>
+        — Organization: your GitHub username<br>
+        — Repository: <code>axessia-wsc</code><br>
+        — Branch: <code>main</code></p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Click Save</h3>
+        <p>Click <strong>Save</strong> at the top. Azure will immediately start the first deployment. You can watch the progress in the <strong>Logs</strong> tab below.</p>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>📌 From now on:</strong> Every time you run <code>git push</code> from your computer, Azure will automatically pull the latest code and redeploy your app within ~3–5 minutes.
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 7 — APP SETTINGS -->
+<div class="section" id="s7">
+  <div class="section-header"><div class="num">7</div><h2>PART E — Configure all App Settings (environment variables)</h2></div>
+  <div class="section-body">
+
+    <div class="callout warning">
+      <strong>⚠️ This step is critical.</strong> Without these settings, the app will start but AI features will fail and scans will not work. Do this BEFORE the app finishes its first deployment.
+    </div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Go to Configuration</h3>
+        <p>In your App Service left menu, click <strong>Configuration</strong>. You will see the <strong>Application settings</strong> tab.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Add each setting below — click "+ New application setting" for each one</h3>
+        <table class="env-table">
+          <tr><th>Setting Name</th><th>Value to enter</th></tr>
+          <tr><td><code>AZURE_OPENAI_ENDPOINT</code></td><td>Paste the Endpoint URL from Part B Step 4<br><em>e.g. https://axessia-openai.openai.azure.com/</em></td></tr>
+          <tr><td><code>AZURE_OPENAI_KEY</code></td><td>Paste KEY 1 from Part B Step 4</td></tr>
+          <tr><td><code>AZURE_OPENAI_API_VERSION</code></td><td><code>2024-02-01</code></td></tr>
+          <tr><td><code>AZURE_OPENAI_DEPLOYMENT</code></td><td><code>gpt-4o-mini</code></td></tr>
+          <tr><td><code>AXESSIA_API_KEY</code></td><td>A strong random password you invent. Example: <code>Axs!2025$SecureKey#77</code></td></tr>
+          <tr><td><code>AXESSIA_API_URL</code></td><td><code>http://127.0.0.1:8001/scan</code></td></tr>
+          <tr><td><code>AXESSIA_CRAWL_URL</code></td><td><code>http://127.0.0.1:8001/crawl</code></td></tr>
+          <tr><td><code>AXESSIA_ALLOWED_ORIGINS</code></td><td><code>https://axessia-app.azurewebsites.net</code><br>(replace with your actual app URL)</td></tr>
+          <tr><td><code>WEBSITES_PORT</code></td><td><code>8000</code></td></tr>
+          <tr><td><code>SCM_DO_BUILD_DURING_DEPLOYMENT</code></td><td><code>true</code></td></tr>
+          <tr><td><code>PLAYWRIGHT_BROWSERS_PATH</code></td><td><code>/home/playwright-browsers</code></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Set the Startup Command</h3>
+        <p>Click the <strong>General settings</strong> tab (next to Application settings). Find the <strong>Startup Command</strong> field. Type exactly:</p>
+        <pre>bash startup.sh</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Click Save</h3>
+        <p>Click <strong>Save</strong> at the top. Click <strong>Continue</strong> when it warns the app will restart. This is expected.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Enable HTTPS Only</h3>
+        <p>In the left menu, click <strong>TLS/SSL settings</strong>. Under <strong>Protocol Settings</strong>, turn <strong>HTTPS Only</strong> to <strong>On</strong>. Click <strong>Save</strong>.</p>
+      </div>
+    </div>
+
+    <div class="callout success">✅ All environment variables are set. Your API keys are stored securely in Azure — never in your code.</div>
+  </div>
+</div>
+
+<!-- SECTION 8 — PUSH AND DEPLOY -->
+<div class="section" id="s8">
+  <div class="section-header"><div class="num">8</div><h2>PART F — Push your code and watch it deploy</h2></div>
+  <div class="section-body">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Trigger a fresh deployment</h3>
+        <p>Since you've now added all the App Settings, trigger a fresh deployment. In your terminal (in the axessia-wsc folder), run:</p>
+        <pre><span class="cmt"># Make a small empty commit to trigger redeploy</span>
+git commit --allow-empty -m "Trigger Azure redeploy with app settings"
+git push</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Watch the deployment in Azure</h3>
+        <p>In Azure Portal → your App Service → <strong>Deployment Center</strong> → <strong>Logs</strong> tab. You will see a new entry appear. Click on it to see the build log in real-time. The full process takes about <strong>5–8 minutes</strong> the first time (Playwright Chromium installs ~150 MB).</p>
+        <p>You will see lines like:<br>
+        <code>Installing Playwright Chromium browser...</code><br>
+        <code>Starting FastAPI (port 8001)...</code><br>
+        <code>Starting Streamlit (port 8000)...</code></p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>For all future changes</h3>
+        <p>Edit your files on your computer, then run:</p>
+        <pre>git add .
+git commit -m "describe your change here"
+git push</pre>
+        <p>Azure will auto-deploy within 3–5 minutes.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 9 — TESTING -->
+<div class="section" id="s9">
+  <div class="section-header"><div class="num">9</div><h2>PART G — Test your live app</h2></div>
+  <div class="section-body">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Open your app URL in a browser</h3>
+        <p>Go to <code>https://axessia-app.azurewebsites.net</code> (use your actual app name). The Axessia UI should appear within a few seconds.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Run your first scan</h3>
+        <p>Click <strong>➕ Add URL</strong>. Type a public website URL (e.g. <code>https://www.bbc.com</code>). Click <strong>🔍 Run Scan</strong>. Wait up to 60 seconds. The results dashboard should appear with accessibility scores, charts, and rule breakdowns.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Test PDF Export</h3>
+        <p>On a completed scan result, click <strong>📄 Export PDF</strong>. A PDF report should download automatically.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Verify AI explanations work</h3>
+        <p>Click <strong>View Results</strong> on any scan. Open any failed rule in the <strong>🔴 Issues</strong> tab. You should see AI explanation text (not a generic fallback message). This confirms Azure OpenAI is connected correctly.</p>
+      </div>
+    </div>
+
+    <table>
+      <tr><th>What to check</th><th>Expected result</th></tr>
+      <tr><td>Open app URL in browser</td><td>Axessia UI loads with sidebar</td></tr>
+      <tr><td>Run scan on any public URL</td><td>Results appear within 60 seconds</td></tr>
+      <tr><td>Export PDF</td><td>PDF downloads with full report</td></tr>
+      <tr><td>Open a failed rule → AI explanation</td><td>Real AI text appears (not fallback)</td></tr>
+      <tr><td>Try scanning 127.0.0.1</td><td>Should be blocked with error message</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- SECTION 10 — TROUBLESHOOTING -->
+<div class="section" id="s10">
+  <div class="section-header"><div class="num">10</div><h2>Troubleshooting common errors</h2></div>
+  <div class="section-body">
+
+    <table>
+      <tr><th>Error you see</th><th>What it means</th><th>How to fix it</th></tr>
+      <tr>
+        <td>App loads but scan gives "Cannot connect to API server"</td>
+        <td>FastAPI worker did not start</td>
+        <td>Check App Service Logs (left menu → Log stream). Look for startup.sh errors. Make sure Startup Command is set to <code>bash startup.sh</code>.</td>
+      </tr>
+      <tr>
+        <td>AI explanation shows generic fallback text</td>
+        <td>Azure OpenAI settings missing or wrong</td>
+        <td>Go to Configuration and double-check all 4 AZURE_OPENAI_ settings. Make sure the Endpoint ends with <code>/</code>.</td>
+      </tr>
+      <tr>
+        <td>App shows 503 Service Unavailable</td>
+        <td>App hasn't finished starting</td>
+        <td>Wait 3–5 more minutes. First startup is slow due to Playwright install. Check Log stream for progress.</td>
+      </tr>
+      <tr>
+        <td>Deployment fails with "pip install error"</td>
+        <td>Dependency conflict in requirements.txt</td>
+        <td>Check Deployment Center → Logs for the exact package that failed. Use the exact requirements.txt from this package without editing it.</td>
+      </tr>
+      <tr>
+        <td>"Unauthorized" error when scanning</td>
+        <td>AXESSIA_API_KEY mismatch</td>
+        <td>This should not happen in normal use since both processes share the same env var. If it appears, restart the App Service.</td>
+      </tr>
+      <tr>
+        <td>Scan times out on large sites</td>
+        <td>Page load > 30 seconds</td>
+        <td>Normal for very heavy sites. Try a specific inner page URL instead of the homepage.</td>
+      </tr>
+      <tr>
+        <td>App crashes after a few scans with OOM error</td>
+        <td>Not enough RAM — you are on B1 plan</td>
+        <td>Scale up to B2 in App Service → Scale up (App Service plan) → B2.</td>
+      </tr>
+    </table>
+
+    <br>
+    <div class="callout info">
+      <strong>🔍 How to check logs:</strong> In Azure Portal → App Service → <strong>Log stream</strong> (left menu, under Monitoring). This shows live output from your app — very useful for debugging startup issues.
+    </div>
+    <br>
+    <div class="callout info">
+      <strong>🔧 How to SSH into your app (advanced):</strong> App Service → <strong>Advanced Tools</strong> → <strong>Go</strong> → <strong>SSH</strong>. This lets you run commands directly inside the container to inspect what's running.
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p>Axessia Web Scan Console · Azure Deployment Guide · WSC Edition</p>
+  <p style="margin-top:6px;">Generated for your development team · All secrets go in Azure App Service Configuration only.</p>
+</footer>
+
+</body>
+</html>
