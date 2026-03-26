@@ -265,6 +265,23 @@ def fully_automated_login(
                 browser.close()
                 return {"success": False, "error": err, "stage": "phase1"}
 
+            # Sky login page is a JS-rendered SPA — wait for the actual
+            # input field to appear in the DOM before trying to fill it
+            try:
+                page.wait_for_selector(
+                    "input, [type='email'], [type='password'], [name='username']",
+                    timeout=15_000,
+                    state="visible",
+                )
+            except Exception:
+                pass  # continue and try anyway
+
+            # Extra safety: wait for network to settle
+            try:
+                page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                pass
+
             # Find email field
             email_sel = _find_selector(page, EMAIL_SELECTORS)
             if not email_sel:
