@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import os
 from pdf_report import generate_pdf_report
-from auth_flow import fully_automated_login, phase2_manual_otp, verify_session
+from auth_flow import parse_cookies, verify_session_from_cookies, verify_session
 from scanner_axe import run_scan_with_cookies
 
 # ================= CONFIG =================
@@ -116,127 +116,106 @@ with st.expander(
     # ── Status banner ──────────────────────────────
     if phase == "idle":
         st.info(
-            "💡 Use this panel to scan pages that redirect to a login screen. "
-            "Axessia will log in automatically and scan the real page content."
-        )
-    elif phase == "needs_manual_otp":
-        st.warning(
-            "⏳ One more step — the OTP code could not be read automatically. "
-            "Check your SMS and enter the code below."
+            "💡 Sky's firewall blocks automated login from cloud servers. "
+            "Log in manually in your browser, export your cookies, and paste them here. "
+            "Axessia will use those cookies to scan any Sky test page."
         )
     elif phase == "authenticated":
-        st.success("✅ Session active — you can scan Sky test pages below.")
+        st.success("✅ Cookies imported — session active. Scan Sky test pages below.")
     elif phase == "expired":
-        st.error("🔴 Session expired. Please log in again.")
+        st.error("🔴 Session expired or cookies are no longer valid. Please import fresh cookies.")
 
     st.divider()
 
     # ════════════════════════════════════════════════
-    # CREDENTIALS FORM
+    # COOKIE IMPORT PANEL
     # Shown when: idle, expired
     # ════════════════════════════════════════════════
     if phase in ("idle", "expired"):
-        st.markdown("**Enter your Sky test account credentials**")
-        st.caption(
-            "Axessia will open the Sky login page, fill in your details, "
-            "read the OTP code that appears on screen, and complete login "
-            "— all automatically. You only need to provide email and password."
+
+        st.markdown("**How to get your cookies — 3 quick steps**")
+
+        with st.container(border=True):
+            st.markdown(
+                "**Step 1** — Install the free browser extension **Cookie-Editor** "
+                "([Chrome](https://chrome.google.com/webstore/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkaldje) "
+                "· [Firefox](https://addons.mozilla.org/en-US/firefox/addon/cookie-editor/))"
+            )
+            st.markdown(
+                "**Step 2** — Open your browser, go to the Sky test environment, "
+                "and **log in normally** at `test-www.sky.it`"
+            )
+            st.markdown(
+                "**Step 3** — Click the Cookie-Editor extension icon → click **Export** "
+                "(top right) → click **Export as JSON** → it copies to your clipboard"
+            )
+
+        st.markdown(" ")
+        st.markdown("**Paste your exported cookies here:**")
+
+        cookie_input = st.text_area(
+            "Cookies (JSON from Cookie-Editor, or key=value; key=value format)",
+            height=160,
+            placeholder='[{"name":"session","value":"abc123","domain":".sky.it",...}, ...]',
+            key="cookie_paste_input",
         )
 
-        with st.container(border=True):
-            auth_login_url = st.text_input(
-                "Sky Login URL",
-                value=st.session_state.auth_login_url
-                      or "https://test-www.sky.it/login?clientID=WebSelfCare&forward=https%3A%2F%2Ftest.abbonamento.sky.it%2Fhome",
-                key="auth_login_url_input",
-            )
-            auth_email    = st.text_input("Username or email", placeholder="your@email.com", key="auth_email_input")
-            auth_password = st.text_input("Password", type="password", key="auth_password_input")
-
-            if st.button("🚀 Log In Automatically", type="primary", key="auth_start_btn"):
-                if not auth_email.strip() or not auth_password.strip():
-                    st.error("Please enter both email and password.")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            if st.button("✅ Import Cookies & Activate Session", type="primary", key="cookie_import_btn"):
+                if not cookie_input.strip():
+                    st.error("Please paste your cookies first.")
                 else:
-                    with st.spinner(
-                        "Logging in… Playwright is filling the form and reading the OTP code automatically…"
-                    ):
-                        result = fully_automated_login(
-                            login_url = auth_login_url.strip(),
-                            email     = auth_email.strip(),
-                            password  = auth_password.strip(),
+                    storage_state = parse_cookies(cookie_input.strip())
+                    if not storage_state:
+                        st.error(
+                            "Could not parse the cookies. "
+                            "Make sure you used **Export as JSON** in Cookie-Editor, "
+                            "or paste the raw cookie string from DevTools."
                         )
-
-                    if result.get("success"):
-                        st.session_state.auth_storage_state = result["storage_state"]
-                        st.session_state.auth_login_url     = auth_login_url.strip()
-                        st.session_state.auth_phase         = "authenticated"
-                        otp = result.get("otp_used", "")
-                        if otp:
-                            st.toast(f"✅ Logged in! OTP used automatically: {otp}", icon="🔐")
-                        st.rerun()
-
-                    elif result.get("needs_manual_otp"):
-                        # OTP not readable — fall back to manual entry
-                        st.session_state.auth_storage_state = result["storage_state"]
-                        st.session_state.auth_otp_url       = result["otp_url"]
-                        st.session_state.auth_login_url     = auth_login_url.strip()
-                        st.session_state.auth_otp_prefill   = result.get("otp_code_found", "")
-                        st.session_state.auth_phase         = "needs_manual_otp"
-                        st.rerun()
-
                     else:
-                        st.error(f"Login failed: {result['error']}")
-
-    # ════════════════════════════════════════════════
-    # MANUAL OTP FALLBACK
-    # Only shown when code was not readable from page
-    # ════════════════════════════════════════════════
-    elif phase == "needs_manual_otp":
-        st.markdown("**Enter the SMS verification code**")
-        with st.container(border=True):
-            otp_val = st.text_input(
-                "OTP / Security Code (6 digits)",
-                value=st.session_state.auth_otp_prefill,
-                max_chars=8,
-                placeholder="e.g. 462628",
-                key="auth_manual_otp_input",
-            )
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                if st.button("✅ Submit Code", type="primary", key="auth_manual_otp_btn"):
-                    if not otp_val.strip():
-                        st.error("Please enter the verification code.")
-                    else:
-                        with st.spinner("Submitting code…"):
-                            result = phase2_manual_otp(
-                                otp_url       = st.session_state.auth_otp_url,
-                                otp_code      = otp_val.strip(),
-                                storage_state = st.session_state.auth_storage_state,
+                        num_cookies = len(storage_state.get("cookies", []))
+                        # Quick verify against the Sky home page
+                        with st.spinner("Verifying session with Sky test environment…"):
+                            check = verify_session_from_cookies(
+                                target_url    = "https://test.abbonamento.sky.it/home",
+                                storage_state = storage_state,
                             )
-                        if result["success"]:
-                            st.session_state.auth_storage_state = result["storage_state"]
+                        if check["valid"]:
+                            st.session_state.auth_storage_state = storage_state
                             st.session_state.auth_phase         = "authenticated"
+                            st.session_state.auth_login_url     = "https://test.abbonamento.sky.it/home"
                             st.rerun()
                         else:
-                            st.error(f"Failed: {result['error']}")
-                            st.info("💡 If the code expired, click Start Over and log in again.")
-            with col2:
-                if st.button("↩️ Start Over", key="auth_manual_restart_btn"):
-                    st.session_state.auth_phase         = "idle"
-                    st.session_state.auth_storage_state = None
-                    st.session_state.auth_otp_url       = None
-                    st.session_state.auth_otp_prefill   = ""
-                    st.rerun()
+                            # Cookies parsed but session check redirected to login
+                            # Still allow — user may want to try scanning
+                            st.warning(
+                                f"⚠️ Imported {num_cookies} cookies but the session check "
+                                f"landed on: `{check.get('landed_url', '?')}` — "
+                                "this may mean the cookies have expired or the wrong "
+                                "cookies were exported. You can still try scanning below."
+                            )
+                            st.session_state.auth_storage_state = storage_state
+                            st.session_state.auth_phase         = "authenticated"
+                            st.rerun()
+
+        with col2:
+            with st.expander("ℹ️ Alternative: DevTools cookies"):
+                st.markdown(
+                    "In your browser, press **F12** → **Application** tab → "
+                    "**Cookies** → select `test-www.sky.it`. "
+                    "You can copy individual cookies as `name=value; name2=value2` "
+                    "and paste them above."
+                )
 
     # ════════════════════════════════════════════════
     # AUTHENTICATED — Scan panel
     # ════════════════════════════════════════════════
     elif phase == "authenticated":
+        num = len(st.session_state.auth_storage_state.get("cookies", []))
+        st.caption(f"🍪 {num} cookies active")
+
         st.markdown("**Scan a Sky test page**")
-        st.caption(
-            "Paste any URL from the Sky test environment. "
-            "Your session cookies will be injected automatically."
-        )
         with st.container(border=True):
             auth_scan_url = st.text_input(
                 "URL to scan",
@@ -269,19 +248,19 @@ with st.expander(
             with col2:
                 if st.button("🩺 Check Session", key="auth_check_btn"):
                     with st.spinner("Checking…"):
-                        chk = verify_session(
-                            target_url    = st.session_state.auth_login_url,
+                        chk = verify_session_from_cookies(
+                            target_url    = st.session_state.auth_login_url or "https://test.abbonamento.sky.it/home",
                             storage_state = st.session_state.auth_storage_state,
                         )
                     if chk["valid"]:
-                        st.success(f"✅ Active")
+                        st.success(f"✅ Active — {chk['page_title']}")
                     else:
-                        st.warning("⚠️ Expired")
+                        st.warning(f"⚠️ Expired — landed on: {chk['landed_url']}")
                         st.session_state.auth_phase = "expired"
                         st.rerun()
 
             with col3:
-                if st.button("🔄 Re-Login", key="auth_relogin_btn"):
+                if st.button("🔄 Import New Cookies", key="auth_relogin_btn"):
                     st.session_state.auth_phase         = "idle"
                     st.session_state.auth_storage_state = None
                     st.rerun()
