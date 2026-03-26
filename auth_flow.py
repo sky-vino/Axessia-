@@ -1,117 +1,45 @@
 # ======================================================
 # AXESSIA – Sky Authenticated Login Flow
 #
-# Sky test environment login:
-#   Page 1: test-www.sky.it/login
-#           Fields: "Username or email" + "Password"
-#           Button: "Log in"
-#
-#   Page 2: test-www.sky.it/security/
-#           Shows: "Your sky code is: XXXXXX"  ← read from page
-#           Input: 6 separate single-digit boxes
-#           Button: "Confirmation"
-#
-# The OTP is displayed on the page in the test environment,
-# so Playwright reads it automatically — user only needs to
-# provide their email and password. Everything else is automatic.
+# Sky login page (test-www.sky.it) uses a React SPA with
+# plain <input> elements — no type/name/id on the fields.
+# Strategy: wait for networkidle, then use positional
+# selectors (first visible input = email, second = password)
+# and spoof a real browser to avoid headless detection.
 # ======================================================
 
 import re
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
+# ── Spoof a real Chrome browser to avoid bot detection ─
 BROWSER_ARGS = [
     "--disable-dev-shm-usage",
     "--no-sandbox",
     "--disable-gpu",
     "--disable-extensions",
+    "--disable-blink-features=AutomationControlled",  # hides webdriver flag
+    "--disable-infobars",
+    "--window-size=1280,800",
 ]
+
+# Realistic Chrome user agent
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
 PAGE_TIMEOUT = 30_000   # ms
+WAIT_TIMEOUT = 15_000   # ms for element waits
 
-
-# ── Helpers ────────────────────────────────────────────
-
-def _find_selector(page, candidates: list[str]) -> str | None:
-    for sel in candidates:
-        try:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                return sel
-        except Exception:
-            continue
-    return None
-
-
-def _safe_goto(page, url: str) -> str | None:
-    """Navigate and return error string or None on success."""
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
-        return None
-    except PlaywrightTimeoutError:
-        return "Page timed out loading."
-    except Exception as e:
-        return f"Could not open page: {e}"
-
-
-# ── Selectors tuned to Sky's actual HTML ───────────────
-
-# Page 1 — login form
-EMAIL_SELECTORS = [
-    'input[name="username"]',
-    'input[name="email"]',
-    'input[type="email"]',
-    'input[id="username"]',
-    'input[id="email"]',
-    'input[placeholder*="Username" i]',
-    'input[placeholder*="email" i]',
-    'input[autocomplete="username"]',
-    'input[autocomplete="email"]',
-]
-
-PASSWORD_SELECTORS = [
-    'input[type="password"]',
-    'input[name="password"]',
-    'input[id="password"]',
-    'input[autocomplete="current-password"]',
-]
-
-LOGIN_SUBMIT_SELECTORS = [
-    'button:has-text("Log in")',
-    'button[type="submit"]',
-    'input[type="submit"]',
-    'button:has-text("Accedi")',
-    'button:has-text("Login")',
-    'button:has-text("Sign in")',
-    '[data-testid*="login"]',
-    '[data-testid*="submit"]',
-]
-
-# Page 2 — OTP entry
-# Sky shows 6 separate single-digit input boxes
-OTP_BOX_SELECTORS = [
-    'input[maxlength="1"]',               # most common for digit boxes
-    'input[type="text"][maxlength="1"]',
-    'input[type="number"][maxlength="1"]',
-    'input[inputmode="numeric"][maxlength="1"]',
-    '[data-testid*="otp"]',
-    '[data-testid*="code"]',
-    '.otp-input',
-    '.code-input',
-]
-
-# Single-field OTP fallback (in case Sky ever switches to one box)
-OTP_SINGLE_SELECTORS = [
-    'input[autocomplete="one-time-code"]',
-    'input[inputmode="numeric"]',
-    'input[name="otp"]',
-    'input[name="code"]',
-    'input[name="verificationCode"]',
-    'input[type="text"][maxlength="6"]',
-    'input[type="number"][maxlength="6"]',
-]
+# ── Regex to extract OTP from page text ───────────────
+SKY_CODE_PATTERN = re.compile(
+    r'(?:your sky code is|sky code|security code|otp|codice)[:\s]+([0-9]{4,8})',
+    re.IGNORECASE,
+)
 
 OTP_CONFIRM_SELECTORS = [
-    'button:has-text("Confirmation")',     # Sky's actual button text
+    'button:has-text("Confirmation")',
     'button:has-text("Confirm")',
     'button:has-text("Conferma")',
     'button[type="submit"]',
@@ -119,99 +47,93 @@ OTP_CONFIRM_SELECTORS = [
     'button:has-text("Verify")',
     'button:has-text("Verifica")',
     'button:has-text("Continue")',
-    '[data-testid*="confirm"]',
-    '[data-testid*="verify"]',
-    '[data-testid*="submit"]',
+    'button:has-text("Continua")',
 ]
 
-# Regex to extract the code from "Your sky code is: 462628"
-SKY_CODE_PATTERN = re.compile(
-    r'(?:your sky code is|sky code|security code|otp|codice)[:\s]+([0-9]{4,8})',
-    re.IGNORECASE,
-)
+
+# ── Helpers ────────────────────────────────────────────
+
+def _find_visible(page, selectors: list[str]):
+    """Return first visible element matching any selector."""
+    for sel in selectors:
+        try:
+            el = page.query_selector(sel)
+            if el and el.is_visible():
+                return el, sel
+        except Exception:
+            continue
+    return None, None
 
 
-# ======================================================
-# EXTRACT OTP FROM PAGE
-# Reads "Your sky code is: XXXXXX" directly from the DOM
-# ======================================================
-
-def _extract_otp_from_page(page) -> str | None:
-    """
-    Tries to find the OTP code that Sky displays on the
-    security page in the test environment.
-    Returns the code string (e.g. "462628") or None.
-    """
+def _get_all_visible_inputs(page):
+    """Return all visible input elements (excludes hidden/checkbox/radio)."""
     try:
-        # Strategy 1: search all visible text for the pattern
-        body_text = page.inner_text("body")
-        match = SKY_CODE_PATTERN.search(body_text)
-        if match:
-            return match.group(1).strip()
-
-        # Strategy 2: check specific elements that might contain the code
-        code_candidates = [
-            '[class*="code"]',
-            '[class*="otp"]',
-            '[class*="security"]',
-            'p', 'span', 'div',
-        ]
-        for sel in code_candidates:
+        all_inputs = page.query_selector_all("input")
+        visible = []
+        for inp in all_inputs:
             try:
-                elements = page.query_selector_all(sel)
-                for el in elements:
-                    text = el.inner_text()
-                    m = SKY_CODE_PATTERN.search(text)
-                    if m:
-                        return m.group(1).strip()
+                if not inp.is_visible():
+                    continue
+                t = (inp.get_attribute("type") or "text").lower()
+                if t in ("hidden", "checkbox", "radio", "submit", "button", "image"):
+                    continue
+                visible.append(inp)
             except Exception:
                 continue
-
+        return visible
     except Exception:
-        pass
-
-    return None
+        return []
 
 
-# ======================================================
-# FILL OTP — handles both 6 separate boxes AND single field
-# ======================================================
-
-def _fill_otp(page, otp_code: str) -> bool:
-    """
-    Fills the OTP code into the page.
-    Handles:
-      - 6 separate single-digit input boxes (Sky's actual UI)
-      - Single OTP input field (fallback)
-    Returns True if filled successfully.
-    """
-    # Strategy 1: find all maxlength="1" boxes and fill each
-    boxes = page.query_selector_all('input[maxlength="1"]')
-    visible_boxes = [b for b in boxes if b.is_visible()]
-
-    if len(visible_boxes) >= len(otp_code):
+def _fill_otp_boxes(page, otp_code: str) -> bool:
+    """Fill OTP — handles 6 separate single-digit boxes OR a single field."""
+    # Strategy 1: 6 separate maxlength=1 boxes
+    boxes = [
+        b for b in page.query_selector_all('input[maxlength="1"]')
+        if b.is_visible()
+    ]
+    if len(boxes) >= len(otp_code):
         for i, digit in enumerate(otp_code):
             try:
-                visible_boxes[i].click()
-                visible_boxes[i].fill(digit)
+                boxes[i].click()
+                boxes[i].fill(digit)
             except Exception:
                 pass
         return True
 
-    # Strategy 2: focus first box, type full code (browser auto-distributes)
-    if visible_boxes:
+    # Strategy 2: click first box, keyboard.type distributes digits
+    if boxes:
         try:
-            visible_boxes[0].click()
+            boxes[0].click()
             page.keyboard.type(otp_code)
             return True
         except Exception:
             pass
 
     # Strategy 3: single OTP field
-    single_sel = _find_selector(page, OTP_SINGLE_SELECTORS)
-    if single_sel:
+    single_sels = [
+        'input[autocomplete="one-time-code"]',
+        'input[inputmode="numeric"]',
+        'input[name="otp"]',
+        'input[name="code"]',
+        'input[type="text"][maxlength="6"]',
+        'input[type="number"][maxlength="6"]',
+    ]
+    for sel in single_sels:
         try:
-            page.fill(single_sel, otp_code)
+            el = page.query_selector(sel)
+            if el and el.is_visible():
+                el.fill(otp_code)
+                return True
+        except Exception:
+            continue
+
+    # Strategy 4: use any visible input on the OTP page
+    visible = _get_all_visible_inputs(page)
+    if visible:
+        try:
+            visible[0].click()
+            visible[0].fill(otp_code)
             return True
         except Exception:
             pass
@@ -219,10 +141,34 @@ def _fill_otp(page, otp_code: str) -> bool:
     return False
 
 
+def _extract_otp_from_page(page) -> str | None:
+    """Read 'Your sky code is: XXXXXX' from page text."""
+    try:
+        body_text = page.inner_text("body")
+        match = SKY_CODE_PATTERN.search(body_text)
+        if match:
+            return match.group(1).strip()
+
+        # Also scan individual elements
+        for sel in ["p", "span", "div", "label", "h1", "h2", "h3"]:
+            try:
+                for el in page.query_selector_all(sel):
+                    try:
+                        text = el.inner_text()
+                        m = SKY_CODE_PATTERN.search(text)
+                        if m:
+                            return m.group(1).strip()
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 # ======================================================
 # MAIN: fully_automated_login
-# Runs both phases without user intervention for OTP.
-# Credentials → login page → OTP page → read code → confirm → cookies
 # ======================================================
 
 def fully_automated_login(
@@ -231,112 +177,174 @@ def fully_automated_login(
     password: str,
 ) -> dict:
     """
-    Complete Sky login in one shot.
-
-    Returns:
-        {
-            "success": True,
-            "storage_state": {...},   # authenticated session cookies
-            "final_url": "...",
-            "otp_used": "462628",     # for debug/transparency
-        }
-        or
-        {
-            "success": False,
-            "error": "...",
-            "stage": "phase1" | "otp_read" | "phase2",
-        }
+    Full Sky login:
+      1. Navigate to login URL
+      2. Wait for SPA to render
+      3. Fill first visible input = email
+         Fill second visible input (or password type) = password
+      4. Click Log in button
+      5. Wait for OTP page
+      6. Read OTP code from page text
+      7. Fill 6 digit boxes
+      8. Click Confirmation
+      9. Return authenticated cookies
     """
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=BROWSER_ARGS)
+            browser = p.chromium.launch(
+                headless=True,
+                args=BROWSER_ARGS,
+            )
             context = browser.new_context(
+                user_agent=USER_AGENT,
                 ignore_https_errors=True,
                 viewport={"width": 1280, "height": 800},
+                # Remove webdriver JS property that sites detect
+                java_script_enabled=True,
             )
+
+            # Hide Playwright / webdriver fingerprint
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+
             context.set_default_timeout(PAGE_TIMEOUT)
             page = context.new_page()
 
-            # ══════════════════════════════════════════
-            # PHASE 1 — Fill email + password → Log in
-            # ══════════════════════════════════════════
-            err = _safe_goto(page, login_url)
-            if err:
-                browser.close()
-                return {"success": False, "error": err, "stage": "phase1"}
-
-            # Sky login page is a JS-rendered SPA — wait for the actual
-            # input field to appear in the DOM before trying to fill it
+            # ── Navigate to login page ─────────────────
             try:
-                page.wait_for_selector(
-                    "input, [type='email'], [type='password'], [name='username']",
-                    timeout=15_000,
-                    state="visible",
-                )
-            except Exception:
-                pass  # continue and try anyway
+                page.goto(login_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
+            except PlaywrightTimeoutError:
+                browser.close()
+                return {"success": False, "error": "Login page timed out.", "stage": "phase1"}
+            except Exception as e:
+                browser.close()
+                return {"success": False, "error": f"Could not open login page: {e}", "stage": "phase1"}
 
-            # Extra safety: wait for network to settle
+            # ── Wait for SPA to render fully ──────────
+            # First wait for any input to appear
+            try:
+                page.wait_for_selector("input", timeout=WAIT_TIMEOUT, state="visible")
+            except Exception:
+                pass
+
+            # Then wait for network to settle (JS bundles loaded)
             try:
                 page.wait_for_load_state("networkidle", timeout=10_000)
             except Exception:
                 pass
 
-            # Find email field
-            email_sel = _find_selector(page, EMAIL_SELECTORS)
-            if not email_sel:
+            # Small extra delay for React to mount components
+            page.wait_for_timeout(1500)
+
+            # ── Get all visible inputs ─────────────────
+            visible_inputs = _get_all_visible_inputs(page)
+
+            if len(visible_inputs) < 1:
+                # Debug: grab page title and URL for error message
+                title = page.title()
+                url_now = page.url
                 browser.close()
                 return {
                     "success": False,
                     "error": (
-                        "Could not find the email / username field on the login page. "
-                        "The page structure may have changed."
+                        f"No visible input fields found on the login page. "
+                        f"Page title: '{title}', URL: '{url_now}'. "
+                        "Sky may be blocking the automated browser. "
+                        "Please try again in a moment."
                     ),
                     "stage": "phase1",
                 }
 
-            page.fill(email_sel, email)
-
-            # Find password field
-            pw_sel = _find_selector(page, PASSWORD_SELECTORS)
-            if not pw_sel:
+            # ── Fill email (first input) ───────────────
+            try:
+                visible_inputs[0].click()
+                visible_inputs[0].fill(email)
+            except Exception as e:
                 browser.close()
-                return {
-                    "success": False,
-                    "error": "Could not find the password field.",
-                    "stage": "phase1",
-                }
+                return {"success": False, "error": f"Could not fill email field: {e}", "stage": "phase1"}
 
-            page.fill(pw_sel, password)
+            # ── Fill password ──────────────────────────
+            # Prefer input[type="password"], fall back to second visible input
+            pw_el = None
+            try:
+                pw_el = page.query_selector('input[type="password"]')
+                if pw_el and not pw_el.is_visible():
+                    pw_el = None
+            except Exception:
+                pw_el = None
 
-            # Click Log in
-            submit_sel = _find_selector(page, LOGIN_SUBMIT_SELECTORS)
-            if not submit_sel:
+            if pw_el is None and len(visible_inputs) >= 2:
+                pw_el = visible_inputs[1]
+
+            if pw_el is None:
                 browser.close()
-                return {
-                    "success": False,
-                    "error": "Could not find the Log in button.",
-                    "stage": "phase1",
-                }
+                return {"success": False, "error": "Could not find the password field.", "stage": "phase1"}
 
-            page.click(submit_sel)
+            try:
+                pw_el.click()
+                pw_el.fill(password)
+            except Exception as e:
+                browser.close()
+                return {"success": False, "error": f"Could not fill password field: {e}", "stage": "phase1"}
 
-            # Wait for OTP page to load
+            # ── Click Log in button ────────────────────
+            login_btn_selectors = [
+                'button:has-text("Log in")',
+                'button:has-text("Log In")',
+                'button:has-text("Accedi")',
+                'button:has-text("Login")',
+                'button:has-text("Sign in")',
+                'button:has-text("Continue")',
+                'button:has-text("Continua")',
+                'button[type="submit"]',
+                'input[type="submit"]',
+                '[data-testid*="login"]',
+                '[data-testid*="submit"]',
+            ]
+
+            login_btn, login_sel = _find_visible(page, login_btn_selectors)
+            if not login_btn:
+                browser.close()
+                return {"success": False, "error": "Could not find the Log in button.", "stage": "phase1"}
+
+            login_btn.click()
+
+            # ── Wait for OTP page to load ──────────────
             try:
                 page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT)
             except PlaywrightTimeoutError:
-                pass  # continue regardless
+                pass
 
-            # Check for wrong credentials (still on login page with error)
+            # Wait for OTP input boxes to appear
+            try:
+                page.wait_for_selector(
+                    'input[maxlength="1"], input[autocomplete="one-time-code"], input[inputmode="numeric"]',
+                    timeout=WAIT_TIMEOUT,
+                    state="visible",
+                )
+            except Exception:
+                pass
+
+            try:
+                page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            page.wait_for_timeout(1000)
+
+            # Check for wrong credentials (still on login page)
             current_url = page.url
             if "login" in current_url.lower() and "security" not in current_url.lower():
-                # Look for error message on page
                 try:
                     body = page.inner_text("body")
-                    if any(kw in body.lower() for kw in [
+                    error_keywords = [
                         "incorrect", "invalid", "wrong", "error",
-                        "errato", "non valido", "sbagliato",
-                    ]):
+                        "errato", "non valido", "sbagliato", "not found",
+                    ]
+                    if any(kw in body.lower() for kw in error_keywords):
                         browser.close()
                         return {
                             "success": False,
@@ -346,99 +354,81 @@ def fully_automated_login(
                 except Exception:
                     pass
 
-            # ══════════════════════════════════════════
-            # PHASE 2 — Read OTP from page, fill boxes,
-            #           click Confirmation
-            # ══════════════════════════════════════════
-
-            # Give the OTP page a moment to fully render
-            try:
-                page.wait_for_selector(
-                    'input[maxlength="1"], input[autocomplete="one-time-code"]',
-                    timeout=10_000,
-                )
-            except Exception:
-                pass  # page might already be ready
-
-            # Read the OTP code that Sky displays on the page
+            # ── Read OTP from page ─────────────────────
             otp_code = _extract_otp_from_page(page)
 
             if not otp_code:
-                # OTP not visible on page — ask user to enter it manually
-                # Save state so phase2_manual_otp() can continue
+                # Save state so user can enter OTP manually
                 storage_state = context.storage_state()
-                otp_url       = page.url
+                otp_url = page.url
                 browser.close()
                 return {
-                    "success":       False,
+                    "success": False,
                     "needs_manual_otp": True,
                     "storage_state": storage_state,
-                    "otp_url":       otp_url,
+                    "otp_url": otp_url,
                     "error": (
-                        "Could not read the OTP code automatically from the page. "
-                        "Please enter it manually below."
+                        "Logged in successfully but could not read the OTP code from the page. "
+                        "Please check your SMS and enter the code manually below."
                     ),
                     "stage": "otp_read",
                 }
 
-            # Fill the 6 digit boxes with the code
-            filled = _fill_otp(page, otp_code)
+            # ── Fill OTP boxes ─────────────────────────
+            filled = _fill_otp_boxes(page, otp_code)
             if not filled:
                 storage_state = context.storage_state()
-                otp_url       = page.url
+                otp_url = page.url
                 browser.close()
                 return {
-                    "success":          False,
+                    "success": False,
                     "needs_manual_otp": True,
-                    "storage_state":    storage_state,
-                    "otp_url":          otp_url,
-                    "otp_code_found":   otp_code,
+                    "storage_state": storage_state,
+                    "otp_url": otp_url,
+                    "otp_code_found": otp_code,
                     "error": (
-                        f"Found the code ({otp_code}) but could not fill the input boxes. "
+                        f"Found the code ({otp_code}) but could not fill the boxes. "
                         "Please enter it manually below."
                     ),
                     "stage": "otp_fill",
                 }
 
-            # Click Confirmation button
-            confirm_sel = _find_selector(page, OTP_CONFIRM_SELECTORS)
-            if confirm_sel:
-                page.click(confirm_sel)
+            # ── Click Confirmation ─────────────────────
+            confirm_btn, _ = _find_visible(page, OTP_CONFIRM_SELECTORS)
+            if confirm_btn:
+                confirm_btn.click()
             else:
-                # Last resort: press Enter on the last filled box
                 page.keyboard.press("Enter")
 
-            # Wait for post-OTP navigation
             try:
                 page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT)
             except PlaywrightTimeoutError:
                 pass
 
-            # Verify we are no longer on an auth/security page
-            final_url     = page.url
-            auth_keywords = ["login", "signin", "otp", "verify", "security", "auth", "token"]
-            still_on_auth = any(kw in final_url.lower() for kw in auth_keywords)
+            page.wait_for_timeout(1500)
 
-            if still_on_auth:
+            # ── Verify login succeeded ─────────────────
+            final_url = page.url
+            auth_keywords = ["login", "signin", "otp", "verify", "security", "auth", "token"]
+            if any(kw in final_url.lower() for kw in auth_keywords):
                 browser.close()
                 return {
                     "success": False,
                     "error": (
-                        f"OTP confirmation may have failed — still on auth page: {final_url}. "
+                        f"OTP confirmation may have failed — still on: {final_url}. "
                         "The code may have expired. Please try logging in again."
                     ),
                     "stage": "phase2",
                 }
 
-            # ── Capture fully authenticated session ───
             final_storage_state = context.storage_state()
             browser.close()
 
             return {
-                "success":       True,
+                "success": True,
                 "storage_state": final_storage_state,
-                "final_url":     final_url,
-                "otp_used":      otp_code,
+                "final_url": final_url,
+                "otp_used": otp_code,
             }
 
     except Exception as e:
@@ -446,85 +436,82 @@ def fully_automated_login(
 
 
 # ======================================================
-# FALLBACK: manual OTP submission
-# Used when OTP code is not visible on the page
+# FALLBACK: manual OTP when code not readable from page
 # ======================================================
 
-def phase2_manual_otp(
-    otp_url: str,
-    otp_code: str,
-    storage_state: dict,
-) -> dict:
-    """
-    Restores session from phase 1, fills OTP manually, completes login.
-    Only called when fully_automated_login() returns needs_manual_otp=True.
-    """
+def phase2_manual_otp(otp_url: str, otp_code: str, storage_state: dict) -> dict:
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=BROWSER_ARGS)
             context = browser.new_context(
                 storage_state=storage_state,
+                user_agent=USER_AGENT,
                 ignore_https_errors=True,
-                viewport={"width": 1280, "height": 800},
+            )
+            context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
             )
             context.set_default_timeout(PAGE_TIMEOUT)
             page = context.new_page()
 
-            err = _safe_goto(page, otp_url)
-            if err:
-                browser.close()
-                return {"success": False, "error": err}
+            try:
+                page.goto(otp_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
+            except Exception:
+                pass
 
-            filled = _fill_otp(page, otp_code.strip())
+            try:
+                page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            page.wait_for_timeout(1000)
+
+            filled = _fill_otp_boxes(page, otp_code.strip())
             if not filled:
                 browser.close()
-                return {"success": False, "error": "Could not fill the OTP input boxes."}
+                return {"success": False, "error": "Could not fill the OTP input."}
 
-            confirm_sel = _find_selector(page, OTP_CONFIRM_SELECTORS)
-            if confirm_sel:
-                page.click(confirm_sel)
+            confirm_btn, _ = _find_visible(page, OTP_CONFIRM_SELECTORS)
+            if confirm_btn:
+                confirm_btn.click()
             else:
                 page.keyboard.press("Enter")
 
             try:
                 page.wait_for_load_state("domcontentloaded", timeout=PAGE_TIMEOUT)
-            except PlaywrightTimeoutError:
+            except Exception:
                 pass
 
-            final_url     = page.url
-            auth_keywords = ["login", "signin", "otp", "verify", "security", "auth", "token"]
+            page.wait_for_timeout(1000)
+
+            final_url = page.url
+            auth_keywords = ["login", "signin", "otp", "verify", "security", "auth"]
             if any(kw in final_url.lower() for kw in auth_keywords):
                 browser.close()
                 return {
                     "success": False,
-                    "error": (
-                        f"Still on auth page after OTP: {final_url}. "
-                        "The code may be wrong or expired."
-                    ),
+                    "error": f"Still on auth page after OTP: {final_url}. Code may be wrong or expired.",
                 }
 
             final_storage_state = context.storage_state()
             browser.close()
-            return {
-                "success":       True,
-                "storage_state": final_storage_state,
-                "final_url":     final_url,
-            }
+            return {"success": True, "storage_state": final_storage_state, "final_url": final_url}
 
     except Exception as e:
         return {"success": False, "error": f"Manual OTP crashed: {str(e)}"}
 
 
 # ======================================================
-# HELPER — verify session is still alive
+# HELPER: verify session is still alive
 # ======================================================
 
 def verify_session(target_url: str, storage_state: dict) -> dict:
     try:
         with sync_playwright() as p:
-            browser  = p.chromium.launch(headless=True, args=BROWSER_ARGS)
-            context  = browser.new_context(
+            browser = p.chromium.launch(headless=True, args=BROWSER_ARGS)
+            context = browser.new_context(
                 storage_state=storage_state,
+                user_agent=USER_AGENT,
                 ignore_https_errors=True,
             )
             context.set_default_timeout(PAGE_TIMEOUT)
@@ -533,10 +520,12 @@ def verify_session(target_url: str, storage_state: dict) -> dict:
                 page.goto(target_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
             except Exception:
                 pass
-            landed_url    = page.url
+            landed_url = page.url
             browser.close()
             auth_keywords = ["login", "signin", "security", "otp", "auth"]
-            is_auth       = any(kw in landed_url.lower() for kw in auth_keywords)
-            return {"valid": not is_auth, "landed_url": landed_url}
+            return {
+                "valid": not any(kw in landed_url.lower() for kw in auth_keywords),
+                "landed_url": landed_url,
+            }
     except Exception as e:
         return {"valid": False, "landed_url": "", "error": str(e)}
