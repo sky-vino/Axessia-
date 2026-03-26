@@ -200,13 +200,10 @@ with st.expander(
                             st.rerun()
 
         with col2:
-            with st.expander("ℹ️ Alternative: DevTools cookies"):
-                st.markdown(
-                    "In your browser, press **F12** → **Application** tab → "
-                    "**Cookies** → select `test-www.sky.it`. "
-                    "You can copy individual cookies as `name=value; name2=value2` "
-                    "and paste them above."
-                )
+            st.info(
+                "**Alternative:** Press F12 → Application → Cookies → "
+                "copy as `name=value; name2=value2` and paste above."
+            )
 
     # ════════════════════════════════════════════════
     # AUTHENTICATED — Scan panel
