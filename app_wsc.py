@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 import os
 from pdf_report import generate_pdf_report
+from auth_flow import fully_automated_login, phase2_manual_otp, verify_session
+from scanner_axe import run_scan_with_cookies
 
 # ================= CONFIG =================
 # API_URL reads from environment — set AXESSIA_API_URL in Azure App Service → Configuration
@@ -84,8 +86,207 @@ if "scan_results" not in st.session_state:
 if "show_add_url" not in st.session_state:
     st.session_state.show_add_url = False
 
+# ── Authenticated scan session state ──────────────────
+if "auth_phase" not in st.session_state:
+    st.session_state.auth_phase = "idle"
+    # idle → logging_in → needs_manual_otp → authenticated → expired
+if "auth_storage_state" not in st.session_state:
+    st.session_state.auth_storage_state = None
+if "auth_otp_url" not in st.session_state:
+    st.session_state.auth_otp_url = None
+if "auth_login_url" not in st.session_state:
+    st.session_state.auth_login_url = ""
+if "auth_otp_prefill" not in st.session_state:
+    st.session_state.auth_otp_prefill = ""
+
 
 st.title("⚡ Axessia – Accessibility Intelligence")
+
+# ======================================================
+# 🔐 AUTHENTICATED SCAN PANEL
+# For URLs behind login (e.g. Sky test environment)
+# ======================================================
+
+with st.expander(
+    "🔐 Authenticated Scan  —  for URLs behind login (Sky test environment, staging sites)",
+    expanded=(st.session_state.auth_phase not in ("idle",)),
+):
+    phase = st.session_state.auth_phase
+
+    # ── Status banner ──────────────────────────────
+    if phase == "idle":
+        st.info(
+            "💡 Use this panel to scan pages that redirect to a login screen. "
+            "Axessia will log in automatically and scan the real page content."
+        )
+    elif phase == "needs_manual_otp":
+        st.warning(
+            "⏳ One more step — the OTP code could not be read automatically. "
+            "Check your SMS and enter the code below."
+        )
+    elif phase == "authenticated":
+        st.success("✅ Session active — you can scan Sky test pages below.")
+    elif phase == "expired":
+        st.error("🔴 Session expired. Please log in again.")
+
+    st.divider()
+
+    # ════════════════════════════════════════════════
+    # CREDENTIALS FORM
+    # Shown when: idle, expired
+    # ════════════════════════════════════════════════
+    if phase in ("idle", "expired"):
+        st.markdown("**Enter your Sky test account credentials**")
+        st.caption(
+            "Axessia will open the Sky login page, fill in your details, "
+            "read the OTP code that appears on screen, and complete login "
+            "— all automatically. You only need to provide email and password."
+        )
+
+        with st.container(border=True):
+            auth_login_url = st.text_input(
+                "Sky Login URL",
+                value=st.session_state.auth_login_url
+                      or "https://test-www.sky.it/login?clientID=WebSelfCare&forward=https%3A%2F%2Ftest.abbonamento.sky.it%2Fhome",
+                key="auth_login_url_input",
+            )
+            auth_email    = st.text_input("Username or email", placeholder="your@email.com", key="auth_email_input")
+            auth_password = st.text_input("Password", type="password", key="auth_password_input")
+
+            if st.button("🚀 Log In Automatically", type="primary", key="auth_start_btn"):
+                if not auth_email.strip() or not auth_password.strip():
+                    st.error("Please enter both email and password.")
+                else:
+                    with st.spinner(
+                        "Logging in… Playwright is filling the form and reading the OTP code automatically…"
+                    ):
+                        result = fully_automated_login(
+                            login_url = auth_login_url.strip(),
+                            email     = auth_email.strip(),
+                            password  = auth_password.strip(),
+                        )
+
+                    if result.get("success"):
+                        st.session_state.auth_storage_state = result["storage_state"]
+                        st.session_state.auth_login_url     = auth_login_url.strip()
+                        st.session_state.auth_phase         = "authenticated"
+                        otp = result.get("otp_used", "")
+                        if otp:
+                            st.toast(f"✅ Logged in! OTP used automatically: {otp}", icon="🔐")
+                        st.rerun()
+
+                    elif result.get("needs_manual_otp"):
+                        # OTP not readable — fall back to manual entry
+                        st.session_state.auth_storage_state = result["storage_state"]
+                        st.session_state.auth_otp_url       = result["otp_url"]
+                        st.session_state.auth_login_url     = auth_login_url.strip()
+                        st.session_state.auth_otp_prefill   = result.get("otp_code_found", "")
+                        st.session_state.auth_phase         = "needs_manual_otp"
+                        st.rerun()
+
+                    else:
+                        st.error(f"Login failed: {result['error']}")
+
+    # ════════════════════════════════════════════════
+    # MANUAL OTP FALLBACK
+    # Only shown when code was not readable from page
+    # ════════════════════════════════════════════════
+    elif phase == "needs_manual_otp":
+        st.markdown("**Enter the SMS verification code**")
+        with st.container(border=True):
+            otp_val = st.text_input(
+                "OTP / Security Code (6 digits)",
+                value=st.session_state.auth_otp_prefill,
+                max_chars=8,
+                placeholder="e.g. 462628",
+                key="auth_manual_otp_input",
+            )
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if st.button("✅ Submit Code", type="primary", key="auth_manual_otp_btn"):
+                    if not otp_val.strip():
+                        st.error("Please enter the verification code.")
+                    else:
+                        with st.spinner("Submitting code…"):
+                            result = phase2_manual_otp(
+                                otp_url       = st.session_state.auth_otp_url,
+                                otp_code      = otp_val.strip(),
+                                storage_state = st.session_state.auth_storage_state,
+                            )
+                        if result["success"]:
+                            st.session_state.auth_storage_state = result["storage_state"]
+                            st.session_state.auth_phase         = "authenticated"
+                            st.rerun()
+                        else:
+                            st.error(f"Failed: {result['error']}")
+                            st.info("💡 If the code expired, click Start Over and log in again.")
+            with col2:
+                if st.button("↩️ Start Over", key="auth_manual_restart_btn"):
+                    st.session_state.auth_phase         = "idle"
+                    st.session_state.auth_storage_state = None
+                    st.session_state.auth_otp_url       = None
+                    st.session_state.auth_otp_prefill   = ""
+                    st.rerun()
+
+    # ════════════════════════════════════════════════
+    # AUTHENTICATED — Scan panel
+    # ════════════════════════════════════════════════
+    elif phase == "authenticated":
+        st.markdown("**Scan a Sky test page**")
+        st.caption(
+            "Paste any URL from the Sky test environment. "
+            "Your session cookies will be injected automatically."
+        )
+        with st.container(border=True):
+            auth_scan_url = st.text_input(
+                "URL to scan",
+                placeholder="https://test.abbonamento.sky.it/offers",
+                key="auth_scan_url_input",
+            )
+
+            col1, col2, col3 = st.columns([3, 2, 2])
+            with col1:
+                if st.button("🔍 Scan This Page", type="primary", key="auth_scan_btn"):
+                    if not auth_scan_url.strip():
+                        st.error("Please enter a URL to scan.")
+                    else:
+                        target = auth_scan_url.strip()
+                        with st.spinner(f"Scanning {target} with your Sky session…"):
+                            scan_result = run_scan_with_cookies(
+                                url           = target,
+                                storage_state = st.session_state.auth_storage_state,
+                            )
+                        if scan_result.get("session_expired"):
+                            st.session_state.auth_phase = "expired"
+                            st.rerun()
+                        elif scan_result.get("error"):
+                            st.error(f"Scan error: {scan_result['error']}")
+                        else:
+                            st.session_state.scan_results[target] = scan_result
+                            st.session_state.view                 = "dashboard"
+                            st.rerun()
+
+            with col2:
+                if st.button("🩺 Check Session", key="auth_check_btn"):
+                    with st.spinner("Checking…"):
+                        chk = verify_session(
+                            target_url    = st.session_state.auth_login_url,
+                            storage_state = st.session_state.auth_storage_state,
+                        )
+                    if chk["valid"]:
+                        st.success(f"✅ Active")
+                    else:
+                        st.warning("⚠️ Expired")
+                        st.session_state.auth_phase = "expired"
+                        st.rerun()
+
+            with col3:
+                if st.button("🔄 Re-Login", key="auth_relogin_btn"):
+                    st.session_state.auth_phase         = "idle"
+                    st.session_state.auth_storage_state = None
+                    st.rerun()
+
+st.divider()
 
 # ======================================================
 # DASHBOARD VIEW
