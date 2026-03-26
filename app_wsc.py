@@ -240,12 +240,10 @@ if st.session_state.view == "dashboard":
                 else:
                     st.warning("Please enter a valid URL")
 
-if not st.session_state.scan_results:
-        st.info("🔎 No scans yet. Click **➕ Add URL** above to begin.")
-
     # ── Extension scan results ─────────────────────────
     API_BASE = os.getenv("AXESSIA_API_URL", "http://127.0.0.1:8001/scan").replace("/scan", "")
 
+    st.divider()
     ext_col1, ext_col2 = st.columns([6, 1])
     ext_col1.subheader("🔌 Extension Scans")
     if ext_col2.button("🔄 Refresh", key="ext_refresh"):
@@ -265,8 +263,8 @@ if not st.session_state.scan_results:
         for ext_url, ext_data in ext_results.items():
             with st.container(border=True):
                 st.markdown(f"**{ext_url}**")
-                session = ext_data.get("session_name", "Extension Scan")
-                scanned = ext_data.get("scanned_at", "")
+                session  = ext_data.get("session_name", "Extension Scan")
+                scanned  = ext_data.get("scanned_at", "")
                 st.caption(f"📋 {session}  ·  🕐 {scanned[:16] if scanned else 'Unknown time'}")
                 if "rules" in ext_data:
                     df_ext = pd.DataFrame(ext_data["rules"])
@@ -290,11 +288,14 @@ if not st.session_state.scan_results:
                         key=f"ext_pdf_{ext_url}",
                     )
                     if b3.button("🗑️ Remove", key=f"ext_del_{ext_url}"):
-                        requests.delete(
-                            f"{API_BASE}/ingested",
-                            headers={"x-api-key": API_KEY},
-                            timeout=5,
-                        )
+                        try:
+                            requests.delete(
+                                f"{API_BASE}/ingested",
+                                headers={"x-api-key": API_KEY},
+                                timeout=5,
+                            )
+                        except Exception:
+                            pass
                         st.rerun()
     else:
         st.info(
