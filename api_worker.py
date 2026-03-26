@@ -60,6 +60,11 @@ app.add_middleware(
 # REQUEST MODELS
 # ======================================================
 
+# In-memory store for extension-scanned results
+# key = URL, value = normalized result dict
+_ingested_results: dict = {}
+
+
 class ScanRequest(BaseModel):
     url: HttpUrl
 
@@ -67,6 +72,13 @@ class ScanRequest(BaseModel):
 class CrawlRequest(BaseModel):
     seed_url: HttpUrl
     max_pages_per_section: int = 2
+
+
+class IngestRequest(BaseModel):
+    url: str
+    axe_result: dict          # raw axe.run() output from the browser extension
+    session_name: str = "Extension Scan"
+    scanned_at: str   = ""
 
 
 # ======================================================
@@ -171,6 +183,47 @@ def scan_url(payload: ScanRequest):
         return run_scan(url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")
+
+
+# ======================================================
+# EXTENSION INGEST — receives pre-scanned axe results
+# from the Chrome extension and normalises them
+# ======================================================
+
+@app.post("/ingest")
+def ingest_extension_result(payload: IngestRequest):
+    """
+    Called by the Axessia Chrome extension.
+    Receives raw axe.run() output, normalises it using the
+    same logic as run_scan(), and stores for the dashboard.
+    """
+    from scanner_axe import _normalize_axe_results
+    try:
+        result = _normalize_axe_results(payload.axe_result, payload.url)
+        result["session_name"] = payload.session_name
+        result["scanned_at"]   = payload.scanned_at
+        result["source"]       = "extension"
+        _ingested_results[payload.url] = result
+        return {
+            "status":      "ok",
+            "url":         payload.url,
+            "rules_count": len(result.get("rules", [])),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
+
+
+@app.get("/ingested")
+def get_ingested_results():
+    """Returns all results submitted by the Chrome extension."""
+    return _ingested_results
+
+
+@app.delete("/ingested")
+def clear_ingested_results():
+    """Clears all extension-scanned results."""
+    _ingested_results.clear()
+    return {"status": "cleared"}
 
 
 @app.post("/crawl")

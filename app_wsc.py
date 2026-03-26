@@ -240,8 +240,69 @@ if st.session_state.view == "dashboard":
                 else:
                     st.warning("Please enter a valid URL")
 
-    if not st.session_state.scan_results:
+if not st.session_state.scan_results:
         st.info("🔎 No scans yet. Click **➕ Add URL** above to begin.")
+
+    # ── Extension scan results ─────────────────────────
+    API_BASE = os.getenv("AXESSIA_API_URL", "http://127.0.0.1:8001/scan").replace("/scan", "")
+
+    ext_col1, ext_col2 = st.columns([6, 1])
+    ext_col1.subheader("🔌 Extension Scans")
+    if ext_col2.button("🔄 Refresh", key="ext_refresh"):
+        st.rerun()
+
+    try:
+        ext_resp = requests.get(
+            f"{API_BASE}/ingested",
+            headers={"x-api-key": API_KEY},
+            timeout=5,
+        )
+        ext_results = ext_resp.json() if ext_resp.status_code == 200 else {}
+    except Exception:
+        ext_results = {}
+
+    if ext_results:
+        for ext_url, ext_data in ext_results.items():
+            with st.container(border=True):
+                st.markdown(f"**{ext_url}**")
+                session = ext_data.get("session_name", "Extension Scan")
+                scanned = ext_data.get("scanned_at", "")
+                st.caption(f"📋 {session}  ·  🕐 {scanned[:16] if scanned else 'Unknown time'}")
+                if "rules" in ext_data:
+                    df_ext = pd.DataFrame(ext_data["rules"])
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("♿ Score",        f"{calculate_score(df_ext)}%")
+                    c2.metric("🔴 Failures",     len(df_ext[df_ext["status"] == "fail"]))
+                    c3.metric("🟢 Passed",       len(df_ext[df_ext["status"] == "pass"]))
+                    c4.metric("🟠 Needs Review", len(df_ext[df_ext["status"].isin(["manual","assisted"])]))
+
+                    b1, b2, b3 = st.columns(3)
+                    if b1.button("📊 View Results", key=f"ext_view_{ext_url}"):
+                        st.session_state.scan_results[ext_url] = ext_data
+                        st.session_state.active_url = ext_url
+                        st.session_state.view = "results"
+                        st.rerun()
+                    b2.download_button(
+                        "📄 Export PDF",
+                        data=generate_pdf_report(ext_url, ext_data),
+                        file_name=f"axessia_ext_{ext_url.replace('https://','').replace('/','_')[:40]}.pdf",
+                        mime="application/pdf",
+                        key=f"ext_pdf_{ext_url}",
+                    )
+                    if b3.button("🗑️ Remove", key=f"ext_del_{ext_url}"):
+                        requests.delete(
+                            f"{API_BASE}/ingested",
+                            headers={"x-api-key": API_KEY},
+                            timeout=5,
+                        )
+                        st.rerun()
+    else:
+        st.info(
+            "No extension scans yet. Install the Axessia Chrome extension, "
+            "navigate to any page (including Sky test environment), and click Scan."
+        )
+
+    if not st.session_state.scan_results:
         st.stop()
 
     # Dashboard charts
