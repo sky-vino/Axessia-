@@ -336,13 +336,15 @@ st.markdown(f"""
 # ── Sidebar — Sky logo + navigation ────────────────────
 with st.sidebar:
 
-    # Sky logo
-    if logo_b64:
-        st.markdown(
-            f'<img src="data:image/png;base64,{logo_b64}" '
-            f'style="width:80px; margin-bottom:8px; display:block;" />',
-            unsafe_allow_html=True,
-        )
+    # Sky text logo in sidebar
+    st.markdown(
+        '''<div style="font-size:2rem;font-weight:900;letter-spacing:-2px;
+        background:linear-gradient(135deg,#FF6219,#E8192C,#C8196E,#8B2FC9,#1C6FD4);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+        background-clip:text;font-family:Arial,sans-serif;
+        margin-bottom:4px;line-height:1;">sky</div>''',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         '<p style="font-size:1.1rem;font-weight:800;margin:0;letter-spacing:-0.3px;">'
@@ -417,7 +419,17 @@ surface_icons = {
     "MSA (iOS – Assisted)": "🍎",
 }
 
-logo_img = f'<img src="data:image/png;base64,{logo_b64}" />' if logo_b64 else "⚡"
+# Sky text logo — matches brand colors, no white box
+logo_img = """<div style="
+    font-size:1.6rem; font-weight:900; letter-spacing:-1px;
+    background: linear-gradient(135deg, #FF6219, #E8192C, #C8196E, #8B2FC9, #1C6FD4);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-family: Arial, sans-serif;
+    line-height:1;
+    filter: brightness(10);
+    color: white;
+">sky</div>"""
 
 st.markdown(f"""
 <div class="sky-header">
