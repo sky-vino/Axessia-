@@ -81,7 +81,6 @@ if "scan_results" not in st.session_state:
 if "show_add_url" not in st.session_state:
     st.session_state.show_add_url = False
 
-st.title("⚡ Axessia – Accessibility Intelligence")
 
 # ======================================================
 # DASHBOARD VIEW
