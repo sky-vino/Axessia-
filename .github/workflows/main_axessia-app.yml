@@ -29,13 +29,6 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: |
-          source antenv/bin/activate
-          sudo apt-get update
-          playwright install chromium
-          playwright install-deps chromium
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -44,9 +37,6 @@ jobs:
             .
             !antenv/
             !.git/
-            !__pycache__/
-            !mobile/__pycache__/
-            !*.pyc
 
       - name: Login to Azure
         uses: azure/login@v2
