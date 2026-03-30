@@ -5,181 +5,245 @@ import plotly.express as px
 import os
 from pdf_report import generate_pdf_report
 
-# ================= CONFIG =================
-API_URL = os.getenv("AXESSIA_API_URL", "http://127.0.0.1:8001/scan")
-API_KEY = os.getenv("AXESSIA_API_KEY", "super-secret-demo-key")
+# ── Config ────────────────────────────────────────────
+API_URL   = os.getenv("AXESSIA_API_URL",  "http://127.0.0.1:8001/scan")
+CRAWL_URL = os.getenv("AXESSIA_API_URL",  "http://127.0.0.1:8001/scan").replace("/scan", "/crawl")
+API_KEY   = os.getenv("AXESSIA_API_KEY",  "super-secret-demo-key")
 
-SEVERITY_WEIGHTS = {
-    "critical": 4,
-    "serious": 3,
-    "moderate": 2,
-    "minor": 1,
-}
-
+SEVERITY_WEIGHTS = {"critical": 4, "serious": 3, "moderate": 2, "minor": 1}
 CONFIDENCE_LABELS = {
     "automated": "🟢 Automated",
-    "assisted": "🟠 Assisted",
-    "manual": "🔴 Manual",
+    "assisted":  "🟠 Assisted",
+    "manual":    "🔴 Manual",
 }
 
-# ================= UTILS =================
+# ── Helpers ───────────────────────────────────────────
 def safe_ai(val):
     return val if isinstance(val, dict) else {}
 
 def calculate_score(df: pd.DataFrame) -> float:
-    if df.empty:
-        return 0.0
+    if df.empty: return 0.0
     df = df.copy()
     df["weight"] = df["severity"].map(SEVERITY_WEIGHTS).fillna(0)
-    max_score = len(df) * max(SEVERITY_WEIGHTS.values())
+    max_score    = len(df) * max(SEVERITY_WEIGHTS.values())
     passed_score = df[df["status"] == "pass"]["weight"].sum()
     return round((passed_score / max_score) * 100, 1) if max_score else 0.0
 
 def call_secure_scan(url: str):
     try:
-        response = requests.post(
+        r = requests.post(
             API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": API_KEY,
-            },
+            headers={"Content-Type": "application/json", "x-api-key": API_KEY},
             json={"url": url},
-            timeout=60,
+            timeout=90,
         )
+        if r.status_code == 401:   st.error("Unauthorized. Check AXESSIA_API_KEY."); return None
+        if r.status_code == 429:   st.warning("Rate limit exceeded. Wait and retry."); return None
+        if r.status_code >= 500:   st.error("Server error during scan."); return None
+        return r.json()
+    except requests.exceptions.Timeout:         st.error("Scan timed out."); return None
+    except requests.exceptions.ConnectionError: st.error("Cannot connect to API."); return None
+    except Exception as e:                      st.error(f"Error: {e}"); return None
 
-        if response.status_code == 401:
-            st.error("Unauthorized. Invalid API key.")
-            return None
-
-        if response.status_code == 429:
-            st.warning("Rate limit exceeded. Please wait and try again.")
-            return None
-
-        if response.status_code >= 500:
-            st.error("Server error during scan.")
-            return None
-
-        return response.json()
-
-    except requests.exceptions.Timeout:
-        st.error("Scan timed out.")
-        return None
-    except requests.exceptions.ConnectionError:
-        st.error("Cannot connect to API server.")
-        return None
-    except Exception as e:
-        st.error(f"Unexpected error: {str(e)}")
-        return None
-
-# ================= SESSION STATE =================
-if "view" not in st.session_state:
-    st.session_state.view = "dashboard"
-if "active_url" not in st.session_state:
-    st.session_state.active_url = None
-if "scan_results" not in st.session_state:
-    st.session_state.scan_results = {}
-if "show_add_url" not in st.session_state:
-    st.session_state.show_add_url = False
-
+# ── Session state ─────────────────────────────────────
+for k, v in {
+    "view": "dashboard", "active_url": None, "scan_results": {},
+    "show_add_url": False, "crawl_results": None,
+}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # ======================================================
 # DASHBOARD VIEW
 # ======================================================
 if st.session_state.view == "dashboard":
 
-    h1, h2 = st.columns([6, 1])
-    h1.subheader("Scan Results")
-    if h2.button("➕ Add URL"):
-        st.session_state.show_add_url = not st.session_state.show_add_url
-
-    if st.session_state.show_add_url:
-        with st.container(border=True):
-            url = st.text_input("Enter URL")
-            if st.button("Run Scan", type="primary"):
-                if url.strip():
-                    with st.spinner("Running scan…"):
-                        result = call_secure_scan(url.strip())
-                        if result:
-                            st.session_state.scan_results[url.strip()] = result
-                            st.session_state.show_add_url = False
-                            st.rerun()
-                else:
-                    st.warning("Please enter a valid URL")
-
-    if not st.session_state.scan_results:
-        st.info("No scans yet. Add a URL to begin.")
-        st.stop()
-
-    # Dashboard charts
-    all_rules = []
-    for d in st.session_state.scan_results.values():
-        if "rules" in d:
-            all_rules.extend(d["rules"])
-
-    if all_rules:
-        df_all = pd.DataFrame(all_rules)
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.plotly_chart(
-                px.pie(
-                    df_all.groupby("severity").size().reset_index(name="count"),
-                    names="severity",
-                    values="count",
-                    hole=0.4,
-                    title="Severity Distribution",
-                ),
-                use_container_width=True,
-            )
-
-        with c2:
-            scores = []
-            for u, d in st.session_state.scan_results.items():
-                scores.append({
-                    "URL": u,
-                    "Score": calculate_score(pd.DataFrame(d.get("rules", [])))
-                })
-            st.plotly_chart(
-                px.bar(pd.DataFrame(scores), x="URL", y="Score", title="Score per URL"),
-                use_container_width=True,
-            )
-
+    # ── Scan mode selector ─────────────────────────────
+    scan_mode = st.radio(
+        "mode", ["🔍 Single URL Scan", "🕷️ Site Crawl"],
+        horizontal=True, label_visibility="collapsed", key="scan_mode",
+    )
     st.divider()
 
-    for url, result in st.session_state.scan_results.items():
+    # ══════════════════════════════════════════════════
+    # SINGLE URL MODE
+    # ══════════════════════════════════════════════════
+    if scan_mode == "🔍 Single URL Scan":
+
+        h1, h2 = st.columns([6, 1])
+        h1.subheader("Scan Results")
+        if h2.button("➕ Add URL"):
+            st.session_state.show_add_url = not st.session_state.show_add_url
+
+        if st.session_state.show_add_url:
+            with st.container(border=True):
+                url = st.text_input("Enter URL to scan", placeholder="https://example.com")
+                if st.button("🔍 Run Scan", type="primary"):
+                    if url.strip():
+                        with st.spinner("Running scan…"):
+                            result = call_secure_scan(url.strip())
+                            if result:
+                                st.session_state.scan_results[url.strip()] = result
+                                st.session_state.show_add_url = False
+                                st.rerun()
+                    else:
+                        st.warning("Please enter a valid URL")
+
+        if not st.session_state.scan_results:
+            st.info("🔎 No scans yet. Click **➕ Add URL** to begin.")
+        else:
+            # Charts
+            all_rules = []
+            for d in st.session_state.scan_results.values():
+                if "rules" in d:
+                    all_rules.extend(d["rules"])
+
+            if all_rules:
+                df_all = pd.DataFrame(all_rules)
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.plotly_chart(
+                        px.pie(
+                            df_all.groupby("severity").size().reset_index(name="count"),
+                            names="severity", values="count", hole=0.4,
+                            title="Severity Distribution",
+                            color_discrete_map={"critical":"#C0392B","serious":"#E67E22","moderate":"#F1C40F","minor":"#27AE60"},
+                        ), use_container_width=True,
+                    )
+                with c2:
+                    scores = [{"URL": u[:50], "Score": calculate_score(pd.DataFrame(d.get("rules", [])))}
+                              for u, d in st.session_state.scan_results.items()]
+                    st.plotly_chart(
+                        px.bar(pd.DataFrame(scores), x="URL", y="Score", title="Score per URL",
+                               color="Score", color_continuous_scale="RdYlGn", range_color=[0,100]),
+                        use_container_width=True,
+                    )
+
+            st.divider()
+
+            for url, result in st.session_state.scan_results.items():
+                with st.container(border=True):
+                    st.markdown(f"### {url}")
+                    if "rules" not in result:
+                        st.error("Scan failed."); continue
+
+                    df = pd.DataFrame(result["rules"])
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("♿ Score",        f"{calculate_score(df)}%")
+                    c2.metric("🔴 Failures",     len(df[df["status"] == "fail"]))
+                    c3.metric("🟢 Passed",       len(df[df["status"] == "pass"]))
+                    c4.metric("🟠 Needs Review", len(df[df["status"].isin(["manual","assisted"])]))
+
+                    a1, a2, a3 = st.columns(3)
+                    if a1.button("📊 View Results", key=f"view_{url}"):
+                        st.session_state.active_url = url
+                        st.session_state.view = "results"
+                        st.rerun()
+                    a2.download_button(
+                        "📄 Export PDF",
+                        data=generate_pdf_report(url, result),
+                        file_name=f"axessia_{url.replace('https://','').replace('/','_')[:50]}.pdf",
+                        mime="application/pdf", key=f"pdf_{url}",
+                    )
+                    if a3.button("🗑️ Remove", key=f"del_{url}"):
+                        del st.session_state.scan_results[url]
+                        st.rerun()
+
+    # ══════════════════════════════════════════════════
+    # SITE CRAWL MODE
+    # ══════════════════════════════════════════════════
+    else:
+
+        st.subheader("🕷️ Site Crawl")
+        st.caption("Enter a seed URL — Axessia discovers all sections and scans multiple pages automatically.")
+
         with st.container(border=True):
-            st.markdown(f"### {url}")
-
-            if "rules" not in result:
-                st.error("Scan failed")
-                continue
-
-            df = pd.DataFrame(result["rules"])
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Score", f"{calculate_score(df)}%")
-            c2.metric("Failures", len(df[df["status"] == "fail"]))
-            c3.metric("Passed", len(df[df["status"] == "pass"]))
-            c4.metric("Needs Review", len(df[df["status"].isin(["manual", "assisted"])]))
-
-            a1, a2 = st.columns(2)
-            if a1.button("View Results", key=f"view_{url}"):
-                st.session_state.active_url = url
-                st.session_state.view = "results"
-                st.rerun()
-
-            a2.download_button(
-                "Export PDF",
-                data=generate_pdf_report(url, result),
-                file_name=f"axessia_{url.replace('https://','').replace('/','_')}.pdf",
-                mime="application/pdf",
+            crawl_seed = st.text_input(
+                "Seed URL", placeholder="https://example.com", key="crawl_seed",
             )
+            max_pages = st.slider(
+                "Max pages per section", min_value=1, max_value=5, value=2, key="crawl_max_pages",
+            )
+            if st.button("🕷️ Start Crawl", type="primary", key="crawl_btn"):
+                if not crawl_seed.strip():
+                    st.error("Please enter a seed URL.")
+                else:
+                    with st.spinner("Crawling site… discovering sections and scanning pages. This may take up to 2 minutes."):
+                        try:
+                            resp = requests.post(
+                                CRAWL_URL,
+                                headers={"Content-Type": "application/json", "x-api-key": API_KEY},
+                                json={"seed_url": crawl_seed.strip(), "max_pages_per_section": max_pages},
+                                timeout=180,
+                            )
+                            if resp.status_code == 200:
+                                st.session_state.crawl_results = resp.json()
+                                st.rerun()
+                            else:
+                                st.error(f"Crawl failed: HTTP {resp.status_code}")
+                        except requests.exceptions.Timeout:
+                            st.error("Crawl timed out. Try reducing max pages per section to 1.")
+                        except Exception as e:
+                            st.error(f"Crawl error: {str(e)}")
+
+        # ── Crawl results ──────────────────────────────
+        if st.session_state.crawl_results:
+            crawl_data = st.session_state.crawl_results
+            sections   = crawl_data.get("sections", {})
+
+            if sections:
+                total_pages    = sum(len(s.get("pages", [])) for s in sections.values())
+                total_failures = sum(
+                    sum(1 for r in (s.get("rules") or []) if r.get("status") == "fail")
+                    for s in sections.values()
+                )
+                avg_score = round(
+                    sum(s.get("section_score", 0) for s in sections.values()) / len(sections), 1
+                ) if sections else 0
+
+                st.divider()
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("📂 Sections",       len(sections))
+                c2.metric("📄 Pages Scanned",  total_pages)
+                c3.metric("🔴 Total Failures", total_failures)
+                c4.metric("♿ Avg Score",       f"{avg_score}%")
+                st.divider()
+
+                for section_name, section_data in sections.items():
+                    risk     = section_data.get("eaa_risk", "Low")
+                    score    = section_data.get("section_score", 0)
+                    pages    = section_data.get("pages", [])
+                    rules    = section_data.get("rules") or []
+                    failures = [r for r in rules if r.get("status") == "fail"]
+
+                    risk_icon = {"High": "🔴", "Medium": "🟠", "Low": "🟢"}.get(risk, "🟡")
+
+                    with st.container(border=True):
+                        col1, col2, col3 = st.columns([4, 2, 2])
+                        col1.markdown(f"### 📁 {section_name}")
+                        col1.caption(f"{len(pages)} page(s) scanned")
+                        col2.metric("Score",    f"{score}%")
+                        col3.metric("EAA Risk", f"{risk_icon} {risk}")
+
+                        if failures:
+                            with st.expander(f"🔴 {len(failures)} failure(s) in this section"):
+                                for r in failures[:15]:
+                                    st.markdown(f"- **{r.get('name')}** — WCAG {r.get('wcag')} · {r.get('severity')}")
+
+                        for pg in pages:
+                            st.caption(f"  • {pg}")
+
+                st.divider()
+                if st.button("🗑️ Clear Crawl Results", key="clear_crawl"):
+                    st.session_state.crawl_results = None
+                    st.rerun()
 
 # ======================================================
-# RESULTS VIEW (FULL ORIGINAL RESTORED)
+# RESULTS VIEW
 # ======================================================
 if st.session_state.view == "results":
 
-    url = st.session_state.active_url
+    url  = st.session_state.active_url
     data = st.session_state.scan_results.get(url)
 
     if not data or "rules" not in data:
@@ -189,137 +253,137 @@ if st.session_state.view == "results":
     df = pd.DataFrame(data["rules"])
 
     if st.button("← Back to Dashboard"):
-        st.session_state.view = "dashboard"
+        st.session_state.view      = "dashboard"
         st.session_state.active_url = None
         st.rerun()
 
     st.markdown(f"## Results for `{url}`")
 
     tabs = st.tabs([
-        "Overview",
-        "WCAG",
-        "Issues",
-        "Manual & Assisted",
-        "AI Agent – Dev",
-        "AI Agent – QA",
-        "EAA Readiness",
+        "📊 Overview", "📋 WCAG", "🔴 Issues",
+        "🟠 Manual & Assisted", "🛠️ AI Agent – Dev",
+        "🧪 AI Agent – QA", "⚖️ EAA Readiness",
     ])
 
-    # ---------------- OVERVIEW ----------------
+    # ── Overview ──────────────────────────────────────
     with tabs[0]:
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Failures", len(df[df["status"] == "fail"]))
-        c2.metric("Passed", len(df[df["status"] == "pass"]))
-        c3.metric("Needs Review", len(df[df["status"].isin(["manual","assisted"])]))
-        c4.metric("Total Rules", len(df))
+        c1.metric("🔴 Failures",     len(df[df["status"] == "fail"]))
+        c2.metric("🟢 Passed",       len(df[df["status"] == "pass"]))
+        c3.metric("🟠 Needs Review", len(df[df["status"].isin(["manual","assisted"])]))
+        c4.metric("📋 Total Rules",  len(df))
+        st.metric("♿ Severity-Weighted Score", f"{calculate_score(df)}%")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(
+                px.pie(df.groupby("severity").size().reset_index(name="count"),
+                       names="severity", values="count", hole=0.5, title="Issues by Severity"),
+                use_container_width=True,
+            )
+        with col2:
+            st.plotly_chart(
+                px.density_heatmap(df, x="wcag", y="severity", title="Severity × WCAG"),
+                use_container_width=True,
+            )
 
-        st.metric("Severity-Weighted Accessibility Score", f"{calculate_score(df)}%")
-
-        st.plotly_chart(
-            px.pie(
-                df.groupby("severity").size().reset_index(name="count"),
-                names="severity",
-                values="count",
-                hole=0.5,
-            ),
-            use_container_width=True,
-        )
-
-        st.plotly_chart(
-            px.density_heatmap(
-                df,
-                x="wcag",
-                y="severity",
-                title="Severity × WCAG Heatmap",
-            ),
-            use_container_width=True,
-        )
-
-    # ---------------- WCAG ----------------
+    # ── WCAG table ────────────────────────────────────
     with tabs[1]:
         t = df.copy()
         t["Confidence"] = t["test_type"].map(CONFIDENCE_LABELS)
         st.dataframe(
             t[["name","wcag","level","severity","status","Confidence"]],
-            use_container_width=True,
-            hide_index=True,
+            use_container_width=True, hide_index=True,
         )
 
-    # ---------------- ISSUES ----------------
+    # ── Issues ────────────────────────────────────────
     with tabs[2]:
-        for i, r in df[df["status"]=="fail"].iterrows():
+        failed = df[df["status"] == "fail"]
+        if failed.empty:
+            st.success("🎉 No failures detected!")
+        for i, r in failed.iterrows():
             ai = safe_ai(r.get("ai_explanation"))
-            with st.expander(f"🔴 {r['name']} (WCAG {r['wcag']}, Severity {r['severity']})"):
+            with st.expander(f"🔴 {r['name']}  |  WCAG {r['wcag']}  |  {r['severity'].upper()}"):
                 if ai.get("why_not_automated"):
-                    st.write("**Why this fails**")
-                    st.write(ai["why_not_automated"])
+                    st.markdown("**Why this fails**"); st.write(ai["why_not_automated"])
                 if ai.get("who_is_impacted"):
-                    st.write("**Who is impacted**")
-                    st.write(ai["who_is_impacted"])
+                    st.markdown("**Who is impacted**"); st.write(ai["who_is_impacted"])
                 if ai.get("legal_risk"):
-                    st.write("**Legal / Compliance Risk**")
-                    st.write(ai["legal_risk"])
+                    st.markdown("**Legal / Compliance Risk**"); st.write(ai["legal_risk"])
                 if ai.get("what_to_test_manually"):
-                    st.write("**How to Fix (Developer Action)**")
-                    st.write(ai["what_to_test_manually"])
-                st.button("🧾 Create Defect", key=f"defect_{i}")
-
-    # ---------------- MANUAL & ASSISTED ----------------
-    with tabs[3]:
-        for _, r in df[df["status"].isin(["manual","assisted"])].iterrows():
-            ai = safe_ai(r.get("ai_explanation"))
-            with st.expander(f"{CONFIDENCE_LABELS[r['test_type']]} {r['name']} (WCAG {r['wcag']})"):
-                if ai.get("why_not_automated"):
-                    st.write("**Why manual testing is required**")
-                    st.write(ai["why_not_automated"])
-                if ai.get("what_to_test_manually"):
-                    st.write("**What QA must verify**")
-                    st.write(ai["what_to_test_manually"])
-                if ai.get("qa_validation_steps"):
-                    st.write("**QA Validation Steps**")
-                    for step in ai["qa_validation_steps"]:
-                        st.write(f"- {step}")
-
-    # ---------------- AI AGENT – DEV ----------------
-    with tabs[4]:
-        for _, r in df[df["status"]=="fail"].iterrows():
-            ai = safe_ai(r.get("ai_explanation"))
-            with st.expander(f"Fix: {r['name']}"):
+                    st.markdown("**How to Fix**"); st.write(ai["what_to_test_manually"])
                 if r.get("instances"):
-                    st.code(r["instances"][0].get("snippet",""), language="html")
-                if ai.get("what_to_test_manually"):
-                    st.write(ai["what_to_test_manually"])
+                    st.markdown("**Affected HTML**")
+                    for inst in r["instances"][:3]:
+                        if inst.get("snippet"):
+                            st.code(inst["snippet"], language="html")
+                st.markdown(
+                    '<button style="background:transparent;border:1.5px solid #C8196E;'
+                    'color:#C8196E;padding:6px 16px;border-radius:8px;font-size:0.85rem;'
+                    'font-weight:600;cursor:pointer;margin-top:8px;">'
+                    '🧾 Create Defect</button>',
+                    unsafe_allow_html=True,
+                )
 
-    # ---------------- AI AGENT – QA ----------------
+    # ── Manual & Assisted ─────────────────────────────
+    with tabs[3]:
+        review = df[df["status"].isin(["manual","assisted"])]
+        if review.empty:
+            st.success("No manual checks required.")
+        for _, r in review.iterrows():
+            ai    = safe_ai(r.get("ai_explanation"))
+            label = CONFIDENCE_LABELS.get(r["test_type"], r["test_type"])
+            with st.expander(f"{label}  {r['name']}  |  WCAG {r['wcag']}"):
+                if ai.get("why_not_automated"):
+                    st.markdown("**Why manual testing is required**"); st.write(ai["why_not_automated"])
+                if ai.get("what_to_test_manually"):
+                    st.markdown("**What to verify**"); st.write(ai["what_to_test_manually"])
+                if ai.get("qa_validation_steps"):
+                    st.markdown("**QA Validation Steps**")
+                    for step in ai["qa_validation_steps"]:
+                        st.write(f"— {step}")
+
+    # ── AI Agent – Dev ────────────────────────────────
+    with tabs[4]:
+        failed_dev = df[df["status"] == "fail"]
+        if failed_dev.empty:
+            st.success("No failures to fix.")
+        for _, r in failed_dev.iterrows():
+            ai = safe_ai(r.get("ai_explanation"))
+            with st.expander(f"🛠️ Fix: {r['name']}  (WCAG {r['wcag']})"):
+                if r.get("instances"):
+                    st.markdown("**Affected HTML**")
+                    st.code(r["instances"][0].get("snippet", ""), language="html")
+                if ai.get("what_to_test_manually"):
+                    st.markdown("**Developer Action**"); st.write(ai["what_to_test_manually"])
+
+    # ── AI Agent – QA ─────────────────────────────────
     with tabs[5]:
-        rows=[]
+        rows = []
         for _, r in df[df["status"].isin(["manual","assisted"])].iterrows():
             ai = safe_ai(r.get("ai_explanation"))
             rows.append({
-                "Rule": r["name"],
-                "WCAG": r["wcag"],
-                "Severity": r["severity"],
-                "Confidence": CONFIDENCE_LABELS[r["test_type"]],
-                "Test Steps": " → ".join(ai.get("qa_validation_steps",[]))
+                "Rule": r["name"], "WCAG": r["wcag"], "Severity": r["severity"],
+                "Confidence": CONFIDENCE_LABELS.get(r["test_type"], r["test_type"]),
+                "Test Steps": " → ".join(ai.get("qa_validation_steps", [])),
             })
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("No manual or assisted rules to review.")
 
-    # ---------------- EAA READINESS ----------------
+    # ── EAA Readiness ─────────────────────────────────
     with tabs[6]:
         high = df[
             (df["level"].isin(["A","AA"])) &
             (df["severity"].isin(["critical","serious"])) &
-            (df["status"]!="pass")
+            (df["status"] != "pass")
         ]
-
         if not high.empty:
-            st.error("🔴 High EAA Risk")
+            st.error("🔴 HIGH EAA Risk — Critical WCAG A/AA failures present")
         else:
-            st.success("🟢 Low EAA Risk")
-
+            st.success("🟢 LOW EAA Risk — No critical blockers detected")
         for _, r in high.iterrows():
             ai = safe_ai(r.get("ai_explanation"))
             if ai.get("legal_risk"):
-                with st.expander(f"{r['name']} (WCAG {r['wcag']})"):
+                with st.expander(f"{r['name']}  |  WCAG {r['wcag']}"):
                     st.write(ai["legal_risk"])

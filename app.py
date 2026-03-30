@@ -78,7 +78,7 @@ st.markdown(f"""
   /* ── Main container ── */
   .main .block-container {{
     background-color: {BG_PRIMARY} !important;
-    padding-top: 1rem !important;
+    padding-top: 0.25rem !important;
     max-width: 1400px !important;
   }}
 
@@ -200,7 +200,8 @@ st.markdown(f"""
     background-color: {BG_SECONDARY} !important;
     border-radius: 10px !important;
     padding: 4px !important;
-    gap: 2px !important;
+    gap: 3px !important;
+    flex-wrap: wrap !important;
   }}
   .stTabs [data-baseweb="tab"] {{
     background: transparent !important;
@@ -208,6 +209,9 @@ st.markdown(f"""
     border-radius: 8px !important;
     font-weight: 500 !important;
     border: none !important;
+    font-size: 0.85rem !important;
+    padding: 8px 14px !important;
+    white-space: nowrap !important;
   }}
   .stTabs [aria-selected="true"] {{
     background: {GRADIENT} !important;
@@ -261,6 +265,15 @@ st.markdown(f"""
     box-shadow: none !important;
   }}
 
+  /* ── Create Defect button — Sky gradient outline ── */
+  button[data-testid="baseButton-secondary"]:has-text("Create Defect"),
+  .stButton > button[kind="secondary"] {{
+    background: transparent !important;
+    color: {SKY_MAGENTA} !important;
+    border: 1.5px solid {SKY_MAGENTA} !important;
+    box-shadow: none !important;
+  }}
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar {{ width: 6px; }}
   ::-webkit-scrollbar-track {{ background: {BG_SECONDARY}; }}
@@ -273,6 +286,21 @@ st.markdown(f"""
   .stDataFrame {{
     border-radius: 10px !important;
     overflow: hidden !important;
+  }}
+  .stDataFrame thead th {{
+    background: linear-gradient(135deg, {SKY_RED}, {SKY_MAGENTA}, {SKY_PURPLE}) !important;
+    color: white !important;
+    font-weight: 700 !important;
+    font-size: 0.82rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.4px !important;
+  }}
+  .stDataFrame tbody tr:nth-child(even) td {{
+    background: {BG_SECONDARY} !important;
+  }}
+  .stDataFrame tbody td {{
+    color: {TEXT_PRIMARY} !important;
+    font-size: 0.88rem !important;
   }}
 
   /* ── Progress bar ── */
