@@ -32,6 +32,7 @@ jobs:
       - name: Install Playwright browsers
         run: |
           source antenv/bin/activate
+          sudo apt-get update
           playwright install chromium
           playwright install-deps chromium
 
