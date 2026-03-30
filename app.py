@@ -74,6 +74,17 @@ st.markdown(f"""
     background-color: {BG_PRIMARY} !important;
     color: {TEXT_PRIMARY} !important;
   }}
+  .stApp {{
+    background-color: {BG_PRIMARY} !important;
+    min-height: 100vh !important;
+  }}
+  [data-testid="stAppViewContainer"] {{
+    background-color: {BG_PRIMARY} !important;
+    min-height: 100vh !important;
+  }}
+  [data-testid="stAppViewBlockContainer"] {{
+    background-color: {BG_PRIMARY} !important;
+  }}
 
   /* ── Main container ── */
   .main .block-container {{
