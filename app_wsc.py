@@ -6,7 +6,7 @@ import os
 from pdf_report import generate_pdf_report
 
 # ================= CONFIG =================
-API_URL = "http://127.0.0.1:8000/scan"
+API_URL = os.getenv("AXESSIA_API_URL", "http://127.0.0.1:8001/scan")
 API_KEY = os.getenv("AXESSIA_API_KEY", "super-secret-demo-key")
 
 SEVERITY_WEIGHTS = {
@@ -80,8 +80,6 @@ if "scan_results" not in st.session_state:
     st.session_state.scan_results = {}
 if "show_add_url" not in st.session_state:
     st.session_state.show_add_url = False
-
-st.set_page_config(page_title="Axessia – Accessibility Intelligence", layout="wide")
 
 st.title("⚡ Axessia – Accessibility Intelligence")
 

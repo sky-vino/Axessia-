@@ -1,0 +1,62 @@
+name: Build and deploy Axessia to Azure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: |
+          source antenv/bin/activate
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: |
+            .
+            !antenv/
+            !.git/
+            !__pycache__/
+            !mobile/__pycache__/
+            !*.pyc
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9F7A77B527D246569BF5F9A2764B25BE }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_E32DFAB58C714F49A6735050A8954508 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_3B7AB961827B4252958794E3FCD55205 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'axessia-app'
+          slot-name: 'Production'
+          package: .

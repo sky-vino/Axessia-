@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+antenv/
+.env
+_env
+*.db
+.DS_Store
+mobile/__pycache__/
+playwright-browsers/
