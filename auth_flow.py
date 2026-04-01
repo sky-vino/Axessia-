@@ -19,38 +19,54 @@ PAGE_TIMEOUT = 30_000
 
 
 def _sanitize_cookie(c: dict) -> dict | None:
-    """Strip invalid Playwright fields from exported cookies."""
-    name  = c.get("name", "").strip()
+    """
+    Playwright setCookies ONLY accepts these exact fields:
+    name, value, domain, path, expires, httpOnly, secure, sameSite
+
+    Everything else (storeId, id, hostOnly, session, partitionKey,
+    expirationDate, firstPartyDomain, etc.) causes a crash.
+    We build a brand new dict with ONLY allowed fields.
+    """
+    name  = str(c.get("name", "")).strip()
     value = c.get("value", "")
+
+    # Skip cookies with no name
     if not name:
         return None
 
-    cookie = {
+    # ── Build clean cookie with ONLY Playwright-allowed fields ──
+    clean = {
         "name":   name,
         "value":  str(value) if value is not None else "",
-        "domain": c.get("domain", ".sky.it"),
-        "path":   c.get("path", "/"),
+        "domain": str(c.get("domain") or ".sky.it"),
+        "path":   str(c.get("path")   or "/"),
     }
 
-    exp = c.get("expires") or c.get("expirationDate")
+    # expires — must be a float Unix timestamp
+    exp = c.get("expires") or c.get("expirationDate") or c.get("expiry")
     if exp is not None:
         try:
-            cookie["expires"] = float(exp)
+            f = float(exp)
+            if f > 0:
+                clean["expires"] = f
         except (TypeError, ValueError):
             pass
 
-    if c.get("httpOnly"):
-        cookie["httpOnly"] = True
-    if c.get("secure"):
-        cookie["secure"] = True
+    # httpOnly — only if explicitly True
+    if c.get("httpOnly") is True:
+        clean["httpOnly"] = True
 
-    same_site = c.get("sameSite", "")
-    if isinstance(same_site, str):
-        same_site = same_site.capitalize()
-    if same_site not in ("Strict", "Lax", "None"):
-        same_site = "Lax"
-    cookie["sameSite"] = same_site
-    return cookie
+    # secure — only if explicitly True
+    if c.get("secure") is True:
+        clean["secure"] = True
+
+    # sameSite — must be exactly "Strict", "Lax", or "None"
+    raw_ss = c.get("sameSite") or c.get("samesite") or ""
+    if isinstance(raw_ss, str):
+        raw_ss = raw_ss.strip().capitalize()
+    clean["sameSite"] = raw_ss if raw_ss in ("Strict", "Lax", "None") else "Lax"
+
+    return clean
 
 
 def parse_cookies(raw_input: str) -> dict | None:
