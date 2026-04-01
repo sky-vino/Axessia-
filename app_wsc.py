@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 import os
 from pdf_report import generate_pdf_report
+from auth_flow import parse_cookies, verify_session_from_cookies
+from scanner_axe import run_scan_with_cookies
 
 # ── Config ────────────────────────────────────────────
 API_URL   = os.getenv("AXESSIA_API_URL",  "http://127.0.0.1:8001/scan")
@@ -49,9 +51,116 @@ def call_secure_scan(url: str):
 for k, v in {
     "view": "dashboard", "active_url": None, "scan_results": {},
     "show_add_url": False, "crawl_results": None,
+    "auth_phase": "idle", "auth_storage_state": None,
+    "auth_login_url": "https://test.abbonamento.sky.it/home",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ======================================================
+# 🔐 COOKIE IMPORT PANEL (for Sky test environment)
+# ======================================================
+with st.expander(
+    "🔐 Authenticated Scan — for pages behind login (Sky test environment)",
+    expanded=(st.session_state.auth_phase != "idle"),
+):
+    phase = st.session_state.auth_phase
+
+    if phase == "idle":
+        st.info(
+            "💡 Log into the Sky test environment in your browser, export cookies "
+            "using **Cookie-Editor** or **Cookie Manager** extension, paste below."
+        )
+    elif phase == "authenticated":
+        num = len(st.session_state.auth_storage_state.get("cookies", []))
+        st.success(f"✅ {num} cookies active — scan any Sky test page below.")
+    elif phase == "expired":
+        st.error("🔴 Session expired. Please import fresh cookies.")
+
+    st.divider()
+
+    if phase in ("idle", "expired"):
+        st.markdown(
+            "**How to get cookies (30 seconds):**\n\n"
+            "1. Install [Cookie-Editor](https://chrome.google.com/webstore/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkaldje) "
+            "or [Cookie Manager](https://chrome.google.com/webstore/detail/cookie-manager/gnlibmlfpencglodjpgnalbdebfhpmfg) in Chrome\n"
+            "2. Log into `test-www.sky.it` normally\n"
+            "3. Click the extension → **Export** → **Export as JSON** → copies to clipboard\n"
+            "4. Paste below and click Import"
+        )
+        cookie_input = st.text_area(
+            "Paste cookies here (JSON from Cookie-Editor or Cookie Manager)",
+            height=120,
+            placeholder='[{"name":"session","value":"abc123","domain":".sky.it",...}]',
+            key="cookie_paste_input",
+        )
+        if st.button("✅ Import Cookies", type="primary", key="cookie_import_btn"):
+            if not cookie_input.strip():
+                st.error("Please paste your cookies first.")
+            else:
+                storage_state = parse_cookies(cookie_input.strip())
+                if not storage_state:
+                    st.error("Could not parse cookies. Use **Export as JSON** in Cookie-Editor.")
+                else:
+                    with st.spinner("Verifying session…"):
+                        check = verify_session_from_cookies(
+                            "https://test.abbonamento.sky.it/home", storage_state
+                        )
+                    num = len(storage_state.get("cookies", []))
+                    st.session_state.auth_storage_state = storage_state
+                    st.session_state.auth_login_url     = "https://test.abbonamento.sky.it/home"
+                    st.session_state.auth_phase         = "authenticated"
+                    if not check["valid"]:
+                        st.warning(
+                            f"Imported {num} cookies but session check landed on "
+                            f"`{check.get('landed_url','?')}` — cookies may be expired."
+                        )
+                    st.rerun()
+
+    elif phase == "authenticated":
+        auth_scan_url = st.text_input(
+            "URL to scan (Sky test environment)",
+            placeholder="https://test.abbonamento.sky.it/offers",
+            key="auth_scan_url_input",
+        )
+        if st.button("🔍 Scan This Page", type="primary", key="auth_scan_btn"):
+            if not auth_scan_url.strip():
+                st.error("Please enter a URL.")
+            else:
+                with st.spinner(f"Scanning {auth_scan_url.strip()} with your Sky session…"):
+                    result = run_scan_with_cookies(
+                        url=auth_scan_url.strip(),
+                        storage_state=st.session_state.auth_storage_state,
+                    )
+                if result.get("session_expired"):
+                    st.session_state.auth_phase = "expired"
+                    st.rerun()
+                elif result.get("error"):
+                    st.error(f"Scan error: {result['error']}")
+                else:
+                    st.session_state.scan_results[auth_scan_url.strip()] = result
+                    st.session_state.view = "dashboard"
+                    st.rerun()
+
+        if st.button("🩺 Check Session", key="auth_check_btn"):
+            with st.spinner("Checking…"):
+                chk = verify_session_from_cookies(
+                    st.session_state.auth_login_url,
+                    st.session_state.auth_storage_state,
+                )
+            if chk["valid"]:
+                st.success(f"✅ Active — {chk.get('page_title', chk['landed_url'])}")
+            else:
+                st.warning("⚠️ Session expired.")
+                st.session_state.auth_phase = "expired"
+                st.rerun()
+
+        if st.button("🔄 Import New Cookies", key="auth_new_btn"):
+            st.session_state.auth_phase         = "idle"
+            st.session_state.auth_storage_state = None
+            st.rerun()
+
+st.divider()
 
 # ======================================================
 # DASHBOARD VIEW

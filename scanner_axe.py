@@ -194,3 +194,72 @@ def run_scan(url: str) -> dict:
         results.append(result)
 
     return {"rules": results}
+
+
+# ======================================================
+# AUTHENTICATED SCAN — injects saved session cookies
+# ======================================================
+
+def run_scan_with_cookies(url: str, storage_state: dict) -> dict:
+    """
+    Scans a URL that requires login by injecting saved cookies.
+    storage_state: dict from auth_flow.parse_cookies()
+    Called directly from app_wsc.py — bypasses FastAPI.
+    """
+    axe = None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=[
+                "--disable-dev-shm-usage", "--no-sandbox",
+                "--disable-gpu", "--disable-extensions",
+            ])
+            context = browser.new_context(
+                storage_state=storage_state,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                ignore_https_errors=True,
+            )
+            context.set_default_timeout(PAGE_LOAD_TIMEOUT)
+            page = context.new_page()
+            page.route("**/*", lambda route, request: (
+                route.abort() if request.url.startswith(("file:", "data:"))
+                else route.continue_()
+            ))
+
+            try:
+                page.goto(url, timeout=PAGE_LOAD_TIMEOUT, wait_until="domcontentloaded")
+            except PlaywrightTimeoutError:
+                browser.close()
+                return {"error": "Page load timed out."}
+            except Exception as e:
+                browser.close()
+                return {"error": f"Page load failed: {str(e)}"}
+
+            # Detect session expiry
+            landed_url = page.url
+            auth_kw = ["login", "signin", "otp", "verify", "security", "auth"]
+            if any(kw in landed_url.lower() for kw in auth_kw):
+                browser.close()
+                return {
+                    "error": (
+                        f"Session expired — redirected to: {landed_url}. "
+                        "Please import fresh cookies."
+                    ),
+                    "session_expired": True,
+                }
+
+            if len(page.content()) > MAX_RESPONSE_SIZE:
+                browser.close()
+                return {"error": "Page too large to scan safely."}
+
+            page.add_script_tag(url=AXE_CDN)
+            try:
+                axe = page.evaluate("async () => { return await axe.run(document); }")
+            except Exception as e:
+                browser.close()
+                return {"error": f"Axe execution failed: {str(e)}"}
+            browser.close()
+
+    except Exception as e:
+        return {"error": f"Authenticated scanner crashed: {str(e)}"}
+
+    return _normalize_axe_results(axe, url)
