@@ -1,0 +1,116 @@
+name: Axessia Accessibility Gate
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to scan'
+        required: true
+        default: 'https://example.com'
+      fail_on:
+        description: 'Fail pipeline on severity'
+        required: false
+        default: 'critical'
+        type: choice
+        options: [critical, serious, any, none]
+
+jobs:
+  accessibility-scan:
+    name: Accessibility Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests playwright pypdf apscheduler
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run accessibility scan
+        id: axessia
+        env:
+          AXESSIA_API_URL: ${{ secrets.AXESSIA_API_URL }}
+          AXESSIA_API_KEY: ${{ secrets.AXESSIA_API_KEY }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_VERSION: "2024-02-01"
+          AZURE_OPENAI_DEPLOYMENT: "gpt-4o-mini"
+        run: |
+          URL="${{ github.event.inputs.url || env.SCAN_URL || 'https://example.com' }}"
+          FAIL_ON="${{ github.event.inputs.fail_on || 'critical' }}"
+
+          python cicd_runner.py \
+            --url "$URL" \
+            --fail-on "$FAIL_ON" \
+            --output sarif \
+            --out-file axessia-results.sarif \
+            --timeout 120
+
+          python cicd_runner.py \
+            --url "$URL" \
+            --fail-on "$FAIL_ON" \
+            --output json \
+            --out-file axessia-results.json \
+            --timeout 120
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: axessia-results.sarif
+          category: accessibility
+
+      - name: Upload scan results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axessia-accessibility-report
+          path: |
+            axessia-results.sarif
+            axessia-results.json
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            try {
+              const data = JSON.parse(fs.readFileSync('axessia-results.json', 'utf8'));
+              const s = data.summary;
+              const emoji = s.pass ? '✅' : '❌';
+              const body = `## ${emoji} Axessia Accessibility Scan\n\n` +
+                `| Metric | Value |\n|---|---|\n` +
+                `| Score | ${s.score}% |\n` +
+                `| Critical | ${s.critical} |\n` +
+                `| Serious | ${s.serious} |\n` +
+                `| Moderate | ${s.moderate} |\n` +
+                `| Result | ${s.pass ? '✅ PASS' : '❌ FAIL — pipeline blocked'} |\n\n` +
+                `*Threshold: fail on ${s.threshold}*`;
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body
+              });
+            } catch(e) {
+              console.log('Could not post comment:', e.message);
+            }

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Axessia Scanner</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 340px; font-family: Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; }
+
+  .header {
+    background: linear-gradient(135deg, #E8192C, #C8196E, #8B2FC9);
+    padding: 12px 16px; color: white;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo { font-size: 16px; font-weight: 900; letter-spacing: -1px; }
+  .header-sub { font-size: 10px; opacity: 0.85; }
+
+  .section { padding: 12px 16px; border-bottom: 1px solid #eee; }
+  label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; }
+  input[type="text"] { width: 100%; border: 1px solid #dde; border-radius: 6px; padding: 6px 8px; font-size: 12px; color: #1a1a2e; }
+  input[type="text"]:focus { border-color: #C8196E; outline: none; }
+
+  button {
+    width: 100%; padding: 9px; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.88; }
+  .btn-scan { background: linear-gradient(135deg, #C8196E, #8B2FC9); color: white; }
+  .btn-send { background: linear-gradient(135deg, #8B2FC9, #1C6FD4); color: white; }
+  .btn-outline { background: transparent; border: 1.5px solid #C8196E; color: #C8196E; }
+
+  .status { padding: 10px 16px; font-size: 12px; background: #f5f5fb; }
+  .status.running { background: #FFF3CD; color: #856404; }
+  .status.done    { background: #D4EDDA; color: #1A6B30; }
+  .status.error   { background: #FDECEA; color: #A0101E; }
+
+  .results { padding: 10px 16px; }
+  .metric { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f0f0f8; }
+  .metric-label { color: #666; }
+  .metric-value { font-weight: 700; }
+  .val-fail { color: #E24B4A; }
+  .val-pass { color: #1D9E75; }
+  .val-score { color: #8B2FC9; }
+
+  .violations { max-height: 180px; overflow-y: auto; margin-top: 8px; }
+  .violation { padding: 5px 0; border-bottom: 1px solid #f0f0f8; font-size: 11px; }
+  .vio-name { font-weight: 700; color: #1a1a2e; }
+  .vio-sev  { font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-left: 4px; }
+  .sev-critical { background: #fde8ea; color: #a0101e; }
+  .sev-serious  { background: #fff3cd; color: #856404; }
+  .sev-moderate { background: #d0e8fb; color: #0b4f8a; }
+  .sev-minor    { background: #eaf3de; color: #27500a; }
+
+  .footer { padding: 8px 16px; font-size: 10px; color: #aaa; text-align: center; }
+  .url-display { font-size: 10px; color: #888; padding: 4px 16px 0; word-break: break-all; }
+  .gap { height: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="logo">sky | axessia</div>
+    <div class="header-sub">Accessibility Intelligence</div>
+  </div>
+</div>
+
+<div class="url-display" id="currentUrl">Loading page URL…</div>
+
+<div class="section">
+  <label>Axessia Dashboard URL</label>
+  <input type="text" id="dashboardUrl" placeholder="https://axessia-app.azurewebsites.net" />
+  <div class="gap"></div>
+  <label>API Key</label>
+  <input type="text" id="apiKey" placeholder="your-api-key" />
+</div>
+
+<div class="section">
+  <button class="btn-scan" id="scanBtn">🔍 Scan This Page</button>
+  <div class="gap"></div>
+  <button class="btn-send" id="sendBtn" disabled>📤 Send to Dashboard</button>
+</div>
+
+<div id="statusBar" class="status" style="display:none;"></div>
+<div id="resultsSection" class="results" style="display:none;"></div>
+
+<div class="footer">Axessia — axe-core 4.9.0 | WCAG 2.2</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
